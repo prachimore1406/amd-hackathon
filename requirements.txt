@@ -1,0 +1,8 @@
+torch
+transformers
+accelerate
+langchain
+langchain-huggingface
+langgraph
+gradio
+psutil
