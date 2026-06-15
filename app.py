@@ -7,14 +7,14 @@ current_app_state = {
     "cluster_status_text": "", "current_workload": "",
     "last_decision": "None", "devops_reasoning": "", "performance_summary": "",
     "yaml_output": "", "local_telemetry_text": "", "telemetry_source": "",
-    "node_loads": {}
+    "node_loads": {}, "tool_trace": "", "risk_level": "Medium"
 }
 
 def _view_tuple(result, job_status=""):
     return (
         result["current_workload"], result["cluster_status_text"], result["local_telemetry_text"],
         result["telemetry_source"], result["devops_reasoning"], result["last_decision"],
-        result["performance_summary"], result["yaml_output"], job_status
+        result["performance_summary"], result["tool_trace"], result["yaml_output"], job_status
     )
 
 
@@ -53,9 +53,10 @@ def reset_simulation():
     current_app_state = {
         "cluster_status_text": "", "current_workload": "", "last_decision": "None",
         "devops_reasoning": "", "performance_summary": "", "yaml_output": "",
-        "local_telemetry_text": "", "telemetry_source": "", "node_loads": {}
+        "local_telemetry_text": "", "telemetry_source": "", "node_loads": {},
+        "tool_trace": "", "risk_level": "Medium"
     }
-    return "", "", "", "", "", "", "", "", ""
+    return "", "", "", "", "", "", "", "", "", ""
 
 def main():
     with gr.Blocks(theme=gr.themes.Soft()) as demo:
@@ -81,13 +82,14 @@ def main():
                 out_reasoning = gr.Textbox(label="Explainable AI Reasoning", lines=4)
                 out_decision = gr.Textbox(label="Target Physical Node")
                 out_performance = gr.Textbox(label="Performance Impact", lines=5)
+                out_tool_trace = gr.Textbox(label="Tool Execution Trace", lines=4)
                 out_yaml = gr.Code(label="Generated Kubernetes Manifest", language="yaml")
 
-        btn_run.click(fn=run_simulation_turn, inputs=[], outputs=[in_workload, in_status, local_telemetry, telemetry_source, out_reasoning, out_decision, out_performance, out_yaml, job_status])
-        btn_execute.click(fn=run_current_workload, inputs=[], outputs=[in_workload, in_status, local_telemetry, telemetry_source, out_reasoning, out_decision, out_performance, out_yaml, job_status])
-        btn_gpu_spike.click(fn=run_real_gpu_spike, inputs=[], outputs=[in_workload, in_status, local_telemetry, telemetry_source, out_reasoning, out_decision, out_performance, out_yaml, job_status])
-        btn_refresh.click(fn=refresh_telemetry, inputs=[], outputs=[in_workload, in_status, local_telemetry, telemetry_source, out_reasoning, out_decision, out_performance, out_yaml, job_status])
-        btn_reset.click(fn=reset_simulation, inputs=[], outputs=[in_workload, in_status, local_telemetry, telemetry_source, out_reasoning, out_decision, out_performance, out_yaml, job_status])
+        btn_run.click(fn=run_simulation_turn, inputs=[], outputs=[in_workload, in_status, local_telemetry, telemetry_source, out_reasoning, out_decision, out_performance, out_tool_trace, out_yaml, job_status])
+        btn_execute.click(fn=run_current_workload, inputs=[], outputs=[in_workload, in_status, local_telemetry, telemetry_source, out_reasoning, out_decision, out_performance, out_tool_trace, out_yaml, job_status])
+        btn_gpu_spike.click(fn=run_real_gpu_spike, inputs=[], outputs=[in_workload, in_status, local_telemetry, telemetry_source, out_reasoning, out_decision, out_performance, out_tool_trace, out_yaml, job_status])
+        btn_refresh.click(fn=refresh_telemetry, inputs=[], outputs=[in_workload, in_status, local_telemetry, telemetry_source, out_reasoning, out_decision, out_performance, out_tool_trace, out_yaml, job_status])
+        btn_reset.click(fn=reset_simulation, inputs=[], outputs=[in_workload, in_status, local_telemetry, telemetry_source, out_reasoning, out_decision, out_performance, out_tool_trace, out_yaml, job_status])
 
     demo.launch(server_name="0.0.0.0", share=True)
 

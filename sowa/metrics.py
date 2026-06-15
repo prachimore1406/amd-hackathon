@@ -1,14 +1,25 @@
 import random
 import subprocess
+import time
 from typing import Dict
 
 import psutil
+
+try:
+    import requests
+    REQUESTS_AVAILABLE = True
+except ImportError:
+    REQUESTS_AVAILABLE = False
 
 from sowa.workloads import (
     get_active_workload_count,
     get_active_workloads_text,
     get_recent_accelerator_event_text,
 )
+
+# Prometheus configuration
+PROMETHEUS_URL = "http://localhost:9090"  # Default to localhost for single pod demo
+USE_PROMETHEUS = False  # Can be toggled later
 
 
 WORKLOADS = [
@@ -25,6 +36,15 @@ _SIM_NODES = {
     "General-VM": 55,
 }
 LOCAL_NODE_NAME = "Local-Notebook-Node"
+_GPU_SPIKE_WINDOW_SEC = 20
+
+
+def get_recent_gpu_event() -> str:
+    return get_recent_accelerator_event_text()
+
+
+def get_live_telemetry(last_decision: str = "None", advance_simulation: bool = False) -> Dict[str, str]:
+    return get_cluster_snapshot(last_decision, advance_simulation=advance_simulation)
 
 
 def _clamp(value: int) -> int:
@@ -47,6 +67,14 @@ def _read_rocm_smi() -> Dict[str, str]:
 
 
 def _read_local_telemetry() -> Dict[str, str]:
+    # Try Prometheus first if enabled
+    if USE_PROMETHEUS:
+        prom_telemetry = _read_prometheus_telemetry()
+        # Check if Prometheus actually worked (CPU > 0 or valid source)
+        if "prometheus" in prom_telemetry["telemetry_source"] and float(prom_telemetry["cpu_percent"]) >= 0:
+            return prom_telemetry
+
+    # Fallback to original local telemetry
     cpu = psutil.cpu_percent(interval=0.5)
     memory = psutil.virtual_memory().percent
     gpu = _read_rocm_smi()
@@ -119,6 +147,65 @@ def get_cluster_snapshot(last_decision: str, advance_simulation: bool = True) ->
         "local_telemetry_text": local["local_telemetry_text"],
         "telemetry_source": local["telemetry_source"],
         "node_loads": node_loads,
+    }
+
+
+def _query_prometheus(query: str, timeout: float = 5.0) -> Dict:
+    """Execute a PromQL query against Prometheus."""
+    if not REQUESTS_AVAILABLE:
+        return {"status": "error", "data": {"result": []}}
+    params = {"query": query, "time": time.time()}
+    try:
+        response = requests.get(f"{PROMETHEUS_URL}/api/v1/query", params=params, timeout=timeout)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        print(f"Prometheus query failed: {e}")
+        return {"status": "error", "data": {"result": []}}
+
+
+def _read_prometheus_telemetry() -> Dict[str, str]:
+    """Read telemetry from Prometheus (fallback to local if failed)."""
+    # Query node CPU utilization from node_exporter
+    cpu_query = '100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[1m])) * 100)'
+    cpu_results = _query_prometheus(cpu_query)
+
+    # Query node memory utilization
+    memory_query = '100 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes * 100)'
+    memory_results = _query_prometheus(memory_query)
+
+    # Parse results
+    telemetry_lines = []
+    cpu_util = 0.0
+    mem_util = 0.0
+
+    if cpu_results.get("status") == "success" and len(cpu_results["data"]["result"]) > 0:
+        cpu_util = float(cpu_results["data"]["result"][0]["value"][1])
+        telemetry_lines.append(f"Local Pod | CPU: {cpu_util:.1f}%")
+
+    if memory_results.get("status") == "success" and len(memory_results["data"]["result"]) > 0:
+        mem_util = float(memory_results["data"]["result"][0]["value"][1])
+        telemetry_lines.append(f"Local Pod | Memory: {mem_util:.1f}%")
+
+    active_jobs = get_active_workloads_text()
+    accelerator_event = get_recent_accelerator_event_text()
+    gpu = _read_rocm_smi()
+
+    if gpu["available"] == "true":
+        telemetry_lines.append(f"Recent Accelerator Event: {accelerator_event}")
+        telemetry_lines.append(f"AMD GPU Telemetry:\n{gpu['details']}")
+        source = "prometheus+rocm-smi"
+    else:
+        telemetry_lines.append(f"Recent Accelerator Event: {accelerator_event}")
+        source = "prometheus"
+
+    return {
+        "cpu_percent": f"{cpu_util:.1f}",
+        "memory_percent": f"{mem_util:.1f}",
+        "telemetry_source": source,
+        "local_telemetry_text": "\n".join(telemetry_lines),
+        "active_workload_count": str(get_active_workload_count()),
+        "accelerator_event": accelerator_event,
     }
 
 

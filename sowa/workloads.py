@@ -1,5 +1,6 @@
 import threading
 import time
+from pathlib import Path
 from typing import List
 
 import torch
@@ -9,17 +10,40 @@ _ACTIVE_WORKLOADS: List[str] = []
 _LOCK = threading.Lock()
 _LAST_GPU_SPIKE_AT = 0.0
 _GPU_SPIKE_WINDOW_SEC = 20
+# Textfile collector directory for node_exporter
+TEXTFILE_DIR = Path.home() / "node_exporter-1.8.2.linux-amd64" / "textfile_collector"
+TEXTFILE_DIR.mkdir(parents=True, exist_ok=True)
+TEXTFILE_PATH = TEXTFILE_DIR / "sowa_gpu_spike.prom"
+
+
+def _update_gpu_spike_metric():
+    """Write GPU spike status to prometheus textfile collector"""
+    with _LOCK:
+        active_spike = any("[GPU-SPIKE]" in job for job in _ACTIVE_WORKLOADS)
+        seconds_since_spike = time.time() - _LAST_GPU_SPIKE_AT
+        recent_spike = 0 < seconds_since_spike <= _GPU_SPIKE_WINDOW_SEC
+
+    # Write metric in prometheus format
+    with open(TEXTFILE_PATH, "w") as f:
+        f.write(f"# HELP sowa_gpu_spike_active Indicates if a SOWA demo GPU spike is currently active\n")
+        f.write(f"# TYPE sowa_gpu_spike_active gauge\n")
+        f.write(f"sowa_gpu_spike_active {1 if active_spike else 0}\n")
+        f.write(f"# HELP sowa_gpu_spike_recent Seconds since last SOWA demo GPU spike (0 if > {_GPU_SPIKE_WINDOW_SEC}s)\n")
+        f.write(f"# TYPE sowa_gpu_spike_recent gauge\n")
+        f.write(f"sowa_gpu_spike_recent {seconds_since_spike if recent_spike else 0}\n")
 
 
 def _add_job(name: str) -> None:
     with _LOCK:
         _ACTIVE_WORKLOADS.append(name)
+    _update_gpu_spike_metric()
 
 
 def _remove_job(name: str) -> None:
     with _LOCK:
         if name in _ACTIVE_WORKLOADS:
             _ACTIVE_WORKLOADS.remove(name)
+    _update_gpu_spike_metric()
 
 
 def get_active_workloads_text() -> str:
@@ -36,6 +60,7 @@ def _mark_gpu_spike_event() -> None:
     global _LAST_GPU_SPIKE_AT
     with _LOCK:
         _LAST_GPU_SPIKE_AT = time.time()
+    _update_gpu_spike_metric()
 
 
 def get_recent_accelerator_event_text() -> str:

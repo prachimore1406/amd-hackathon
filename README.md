@@ -97,6 +97,92 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
+---
+
+## (Optional) Setup Local Prometheus + Node Exporter in Your Single GPU Pod
+
+For a more production-like telemetry source inside your JupyterHub pod:
+
+### Option 1: Use the Automated Scripts (Recommended)
+
+We've included two scripts to automate the setup:
+
+#### Bash Script (Linux-only)
+```bash
+chmod +x start_prometheus_stack.sh
+./start_prometheus_stack.sh
+```
+
+#### Python Script (Cross-platform)
+```bash
+python start_prometheus_stack.py
+```
+
+### Option 2: Manual Setup
+
+If you prefer to set it up manually, follow these steps:
+
+#### Step 1: Download and Start Prometheus
+```bash
+# Download Prometheus
+wget https://github.com/prometheus/prometheus/releases/download/v2.52.0/prometheus-2.52.0.linux-amd64.tar.gz
+tar xzf prometheus-2.52.0.linux-amd64.tar.gz
+cd prometheus-2.52.0.linux-amd64
+
+# Create prometheus.yml
+cat > prometheus.yml << 'EOF'
+global:
+  scrape_interval: 15s
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+  - job_name: 'node'
+    static_configs:
+      - targets: ['localhost:9100']
+EOF
+
+# Start Prometheus in background
+nohup ./prometheus --config.file=prometheus.yml --web.listen-address=:9090 > prometheus.log 2>&1 &
+echo "Prometheus started at http://localhost:9090"
+
+# Go back home
+cd ~
+```
+
+#### Step 2: Download and Start Node Exporter
+```bash
+# Download node_exporter
+wget https://github.com/prometheus/node_exporter/releases/download/v1.8.2/node_exporter-1.8.2.linux-amd64.tar.gz
+tar xzf node_exporter-1.8.2.linux-amd64.tar.gz
+cd node_exporter-1.8.2.linux-amd64
+
+# Start node_exporter in background
+nohup ./node_exporter > node_exporter.log 2>&1 &
+echo "Node Exporter started at http://localhost:9100"
+
+# Go back home
+cd ~
+```
+
+### Step 3: Access the Prometheus UI
+Once Prometheus is running, you can view its UI! In a JupyterHub environment:
+
+1. **Using Jupyter Port Forwarding** (if supported):
+   - Look for a "Port Forwarding" or "Proxy" section in your JupyterHub interface
+   - Forward local port 9090 to the pod's port 9090
+
+2. **Using `jupyter-server-proxy`** (if installed):
+   - Try accessing: `http://<your-jupyterhub-url>/proxy/9090`
+
+Once accessible, open `http://localhost:9090` (or the proxied URL) in your browser to explore Prometheus!
+
+### Step 4: Enable Prometheus in SOWA
+To use Prometheus as your telemetry source, edit `sowa/metrics.py` and change:
+```python
+USE_PROMETHEUS = True
+```
+
 Check that ROCm-backed PyTorch sees the GPU:
 
 ```bash
@@ -160,26 +246,4 @@ Use this order during the hackathon demo:
 - If `rocm-smi` is unavailable, the demo still runs, but GPU telemetry becomes less detailed.
 - The first model download may be the slowest part of the setup because persistent storage is limited.
 
-## Troubleshooting
 
-If the model does not start:
-
-- confirm that `torch.cuda.is_available()` is `True`
-- check free disk space
-- confirm the environment has network access for the first Hugging Face download
-
-If telemetry looks incomplete:
-
-- check whether `rocm-smi` exists in the notebook image
-- use `Refresh Telemetry` after starting a local workload or GPU spike
-
-If the app feels slow during the demo:
-
-- wait for the first model load to finish completely
-- avoid stacking too many local workloads at once
-
-## Future Work
-
-- integrate with Prometheus or live cluster APIs instead of simulated remote nodes
-- package the reasoning loop as a Kubernetes operator or controller
-- add policy modes such as `Highest Performance`, `Balanced`, and `Lowest Carbon`

@@ -10,3 +10,5 @@ class MultiAgentState(TypedDict):
     local_telemetry_text: str
     telemetry_source: str
     node_loads: Dict[str, int]
+    tool_trace: str
+    risk_level: str

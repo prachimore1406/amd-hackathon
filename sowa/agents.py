@@ -1,6 +1,15 @@
+import json
+import re
+
 from langchain_core.prompts import PromptTemplate
 from sowa.llm import llm
-from sowa.metrics import LOCAL_NODE_NAME, get_cluster_snapshot, get_next_workload
+from sowa.metrics import (
+    LOCAL_NODE_NAME,
+    get_cluster_snapshot,
+    get_live_telemetry,
+    get_next_workload,
+    get_recent_gpu_event,
+)
 from sowa.state import MultiAgentState
 
 NODE_LABELS = {
@@ -100,6 +109,44 @@ spec:
 """
 
 
+def _parse_structured_response(response: str) -> dict:
+    # Look for the last JSON-like block to avoid issues with conversational prefix/suffix
+    matches = list(re.finditer(r"\{.*\}", response, re.DOTALL))
+    if not matches:
+        return {
+            "reasoning": "Could not parse LLM response.",
+            "decision": "General-VM",
+            "risk_level": "Medium",
+            "performance_explanation": "Fallback decision used.",
+            "tool_trace_summary": "Structured output missing."
+        }
+    
+    # Try the last match as it's most likely the intended JSON block
+    last_match = matches[-1].group(0)
+    try:
+        payload = json.loads(last_match)
+    except json.JSONDecodeError:
+        # If last match fails, try the first one as a backup
+        try:
+            payload = json.loads(matches[0].group(0))
+        except json.JSONDecodeError:
+            return {
+                "reasoning": "Invalid JSON format in LLM response.",
+                "decision": "General-VM",
+                "risk_level": "Medium",
+                "performance_explanation": "Fallback decision used.",
+                "tool_trace_summary": "Invalid JSON response."
+            }
+    
+    return {
+        "reasoning": str(payload.get("reasoning", "No reasoning provided.")),
+        "decision": _normalize_decision(str(payload.get("decision", "General-VM"))),
+        "risk_level": str(payload.get("risk_level", "Medium")).title(),
+        "performance_explanation": str(payload.get("performance_explanation", "")),
+        "tool_trace_summary": str(payload.get("tool_trace_summary", "None")),
+    }
+
+
 def simulator_agent(state: MultiAgentState) -> MultiAgentState:
     """Agent 1: mixes real local telemetry with simulated cluster nodes."""
     snapshot = get_cluster_snapshot(state.get("last_decision", "None"))
@@ -110,51 +157,58 @@ def simulator_agent(state: MultiAgentState) -> MultiAgentState:
         "local_telemetry_text": snapshot["local_telemetry_text"],
         "telemetry_source": snapshot["telemetry_source"],
         "current_workload": workload,
+        "tool_trace": state.get("tool_trace", ""),
+        "risk_level": state.get("risk_level", "Medium"),
     }
 
 
 def devops_agent(state: MultiAgentState) -> MultiAgentState:
-    """Agent 2: uses the hybrid cluster snapshot for placement decisions."""
+    """Agent 2: uses explicit tools plus structured output for placement decisions."""
+    live_snapshot = get_live_telemetry(state.get("last_decision", "None"), advance_simulation=False)
+    recent_gpu_event = get_recent_gpu_event()
+    tool_trace = (
+        "Tool 1: get_live_telemetry() -> refreshed local telemetry without advancing simulator\n"
+        f"Tool 2: get_recent_gpu_event() -> {recent_gpu_event}"
+    )
     prompt = PromptTemplate.from_template("""
     You are an AI DevOps Orchestrator managing an AMD cluster.
     Cluster Status: {status}
     Local Telemetry Source: {telemetry_source}
     Local Telemetry Details: {local_telemetry}
+    Recent GPU Event Tool: {recent_gpu_event}
     Incoming Workload: {workload}
 
     Rules:
     - ML Training prefers AMD-Instinct-GPU.
     - Web Serving prefers AMD-EPYC-CPU.
     - If a physical node load is above 80%, avoid it and choose another node.
-    - You may choose Local-Notebook-Node for ML only when the local telemetry looks healthy.
-    - If local telemetry reports an active or recent real GPU spike, avoid Local-Notebook-Node for new ML work unless it is the only viable option.
-    - Your decision must be exactly one of: AMD-EPYC-CPU, AMD-Instinct-GPU, General-VM, Local-Notebook-Node.
+    - Avoid Local-Notebook-Node for new ML work when the recent GPU event reports an active or recent spike.
+    - decision must be exactly one of: AMD-EPYC-CPU, AMD-Instinct-GPU, General-VM, Local-Notebook-Node.
 
-    Format:
-    REASONING: <logic>
-    DECISION: <Node Name>
+    Return exactly one JSON object with keys:
+    reasoning, decision, risk_level, performance_explanation, tool_trace_summary
     """)
     response = (prompt | llm).invoke({
-        "status": state["cluster_status_text"],
-        "telemetry_source": state.get("telemetry_source", "simulated"),
-        "local_telemetry": state.get("local_telemetry_text", "Unavailable"),
+        "status": live_snapshot["cluster_status_text"],
+        "telemetry_source": live_snapshot.get("telemetry_source", state.get("telemetry_source", "simulated")),
+        "local_telemetry": live_snapshot.get("local_telemetry_text", state.get("local_telemetry_text", "Unavailable")),
+        "recent_gpu_event": recent_gpu_event,
         "workload": state["current_workload"],
     })
-
-    reasoning, decision = "Could not parse.", "General-VM"
-    for line in response.split("\n"):
-        if line.startswith("REASONING:"):
-            reasoning = line.replace("REASONING:", "").strip()
-        elif line.startswith("DECISION:"):
-            decision = _normalize_decision(line.replace("DECISION:", "").strip())
-
+    parsed = _parse_structured_response(response)
+    decision = parsed["decision"]
     workload_name = state["current_workload"].split("|")[0].replace("Name:", "").strip().lower().replace(" ", "-")
-    baseline, performance_summary = _performance_summary(state, decision)
+    _, performance_summary = _performance_summary({**state, **live_snapshot}, decision)
+    if parsed["performance_explanation"]:
+        performance_summary = f"{performance_summary}\nAgent note: {parsed['performance_explanation']}\nRisk level: {parsed['risk_level']}"
     yaml_content = _build_manifest(workload_name, decision)
     return {
         **state,
-        "devops_reasoning": reasoning,
+        **live_snapshot,
+        "devops_reasoning": parsed["reasoning"],
         "last_decision": decision,
         "performance_summary": performance_summary,
         "yaml_output": yaml_content,
+        "tool_trace": f"{tool_trace}\nLLM tool summary: {parsed['tool_trace_summary']}",
+        "risk_level": parsed["risk_level"],
     }
