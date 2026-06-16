@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" type="image/svg+xml" href="./vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SOWA - Self-Optimizing Workload Agent</title>
     <style>
@@ -34,6 +34,17 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      (function () {
+        var path = window.location.pathname
+        var lastSegment = path.split('/').filter(Boolean).pop() || ''
+        var isLikelyFile = lastSegment.indexOf('.') !== -1
+        if (!path.endsWith('/') && !isLikelyFile) {
+          var nextUrl = window.location.origin + path + '/' + window.location.search + window.location.hash
+          window.location.replace(nextUrl)
+        }
+      })()
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react'
 import axios from 'axios'
 
-const API_BASE = '/api'
+const normalizedBaseUrl = new URL(
+  window.location.pathname.endsWith('/') ? window.location.pathname : `${window.location.pathname}/`,
+  window.location.origin,
+)
+const API_BASE = new URL('./api', normalizedBaseUrl).pathname.replace(/\/$/, '')
 
 const App = () => {
   const [state, setState] = useState(null)

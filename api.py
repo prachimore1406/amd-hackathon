@@ -154,7 +154,9 @@ async def reset_demo() -> SOWAState:
 
 frontend_dist_path = Path(__file__).parent / "frontend" / "dist"
 if frontend_dist_path.exists():
-    app.mount("/static", StaticFiles(directory=str(frontend_dist_path)), name="static")
+    assets_path = frontend_dist_path / "assets"
+    if assets_path.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets_path)), name="assets")
 
     @app.get("/{full_path:path}")
     async def serve_react_app(full_path: str):

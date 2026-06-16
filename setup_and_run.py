@@ -173,6 +173,30 @@ def download_and_extract(url: str, base_name: str, tar_name: str):
     return extracted_dir
 
 
+def latest_mtime(paths) -> float:
+    latest = 0.0
+    for path in paths:
+        if path.exists():
+            latest = max(latest, path.stat().st_mtime)
+    return latest
+
+
+def frontend_build_needs_refresh(frontend_dir: Path, frontend_dist: Path) -> bool:
+    """Rebuild when the output is missing or older than source/config inputs."""
+    dist_index = frontend_dist / "index.html"
+    dist_assets = frontend_dist / "assets"
+    if not frontend_dist.exists() or not dist_index.exists() or not dist_assets.exists():
+        return True
+
+    source_paths = [
+        frontend_dir / "package.json",
+        frontend_dir / "vite.config.ts",
+        frontend_dir / "index.html",
+        *frontend_dir.glob("src/**/*"),
+    ]
+    return latest_mtime(source_paths) > dist_index.stat().st_mtime
+
+
 def get_node_npm_paths():
     """Get paths to node and npm, installing if necessary"""
     # Check if node/npm are already in PATH and work
@@ -237,6 +261,18 @@ def build_node_env(node_cmd: str) -> dict:
     node_bin_dir = str(Path(node_cmd).resolve().parent) if node_cmd != "node" else ""
     if node_bin_dir:
         env["PATH"] = f"{node_bin_dir}{os.pathsep}{env.get('PATH', '')}"
+    return env
+
+
+def build_grafana_env() -> dict:
+    """Configure Grafana to work behind Jupyter's proxied subpath when available."""
+    env = os.environ.copy()
+    jupyter_prefix = env.get("JUPYTERHUB_SERVICE_PREFIX") or env.get("NB_PREFIX", "/")
+    if not jupyter_prefix.endswith("/"):
+        jupyter_prefix = f"{jupyter_prefix}/"
+
+    env["GF_SERVER_SERVE_FROM_SUB_PATH"] = "true"
+    env["GF_SERVER_ROOT_URL"] = f"%(protocol)s://%(domain)s{jupyter_prefix}proxy/3000/"
     return env
 
 
@@ -340,8 +376,8 @@ def main():
     frontend_dir = PROJECT_ROOT / "frontend"
     frontend_dist = frontend_dir / "dist"
     node_env = build_node_env(node_cmd)
-    if not frontend_dist.exists() or not (frontend_dist / "index.html").exists():
-        print("Frontend not built yet — installing deps and building...")
+    if frontend_build_needs_refresh(frontend_dir, frontend_dist):
+        print("Frontend build is missing or stale — installing deps and rebuilding...")
         # Install frontend dependencies
         subprocess.run([npm_cmd, "install"], cwd=str(frontend_dir), env=node_env, check=True)
         # Build frontend
@@ -380,10 +416,12 @@ def main():
     # Start Grafana
     print("\nStarting Grafana...")
     grafana_log = LOG_DIR / "grafana.log"
+    grafana_env = build_grafana_env()
     with open(grafana_log, "w") as f:
         proc_grafana = subprocess.Popen(
             [str(grafana_dir / "bin" / "grafana-server"), "web"],
             cwd=str(grafana_dir),
+            env=grafana_env,
             stdout=f,
             stderr=f
         )

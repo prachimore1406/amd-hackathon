@@ -4,7 +4,9 @@ import react from '@vitejs/plugin-react'
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  base: '/static/', // Important: tells Vite assets are served from /static/
+  // Use relative asset paths so the built app also works behind Jupyter
+  // proxy URLs such as /<workspace>/proxy/8000/.
+  base: './',
   server: {
     proxy: {
       '/api': {
