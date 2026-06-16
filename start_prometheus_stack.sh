@@ -41,10 +41,11 @@ global:
 scrape_configs:
   - job_name: 'prometheus'
     static_configs:
-      - targets: ['localhost:9090']
+      - targets: ['127.0.0.1:9090']
   - job_name: 'node'
     static_configs:
-      - targets: ['localhost:9100']
+      - targets: ['127.0.0.1:9100']
+    metrics_path: /metrics
 EOF
 else
     echo "1. Prometheus already downloaded and verified"
