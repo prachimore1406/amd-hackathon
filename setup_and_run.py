@@ -4,6 +4,7 @@
 import os
 import platform
 import signal
+import socket
 import subprocess
 import sys
 import tarfile
@@ -267,13 +268,46 @@ def build_node_env(node_cmd: str) -> dict:
 def build_grafana_env() -> dict:
     """Configure Grafana to work behind Jupyter's proxied subpath when available."""
     env = os.environ.copy()
-    jupyter_prefix = env.get("JUPYTERHUB_SERVICE_PREFIX") or env.get("NB_PREFIX", "/")
-    if not jupyter_prefix.endswith("/"):
-        jupyter_prefix = f"{jupyter_prefix}/"
-
+    public_base_url = get_public_base_url(env)
+    grafana_public_url = build_public_service_url(public_base_url, 3000)
     env["GF_SERVER_SERVE_FROM_SUB_PATH"] = "true"
-    env["GF_SERVER_ROOT_URL"] = f"%(protocol)s://%(domain)s{jupyter_prefix}proxy/3000/"
+    env["GF_SERVER_ROOT_URL"] = grafana_public_url
     return env
+
+
+def get_public_base_url(env: dict | None = None) -> str | None:
+    """Best-effort detection of the public Jupyter base URL for proxied services."""
+    env = env or os.environ
+
+    explicit_base = env.get("SOWA_PUBLIC_BASE_URL") or env.get("JUPYTERHUB_PUBLIC_URL")
+    if explicit_base:
+        return explicit_base.rstrip("/")
+
+    host = env.get("JUPYTERHUB_HOST")
+    prefix = env.get("JUPYTERHUB_SERVICE_PREFIX") or env.get("NB_PREFIX")
+    if host and prefix:
+        host = host.rstrip("/")
+        if not host.startswith(("http://", "https://")):
+            host = f"https://{host}"
+        if not prefix.startswith("/"):
+            prefix = f"/{prefix}"
+        return f"{host}{prefix.rstrip('/')}"
+
+    # AMD notebook sessions expose a stable public host and a runtime-specific
+    # session slug that matches the container hostname. This keeps the URL
+    # dynamic across notebook restarts without hardcoding a full session URL.
+    public_host = env.get("SOWA_PUBLIC_HOST", "https://notebooks.amd.com").rstrip("/")
+    session_slug = env.get("HOSTNAME") or socket.gethostname()
+    if session_slug:
+        return f"{public_host}/{session_slug}"
+
+    return None
+
+
+def build_public_service_url(public_base_url: str | None, port: int) -> str:
+    if public_base_url:
+        return f"{public_base_url.rstrip('/')}/proxy/{port}/"
+    return f"http://localhost:{port}/"
 
 
 def install_python_deps():
@@ -313,6 +347,10 @@ def main():
     BASE_DIR.mkdir(parents=True, exist_ok=True)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     print(f"Service logs directory: {LOG_DIR}")
+    public_base_url = get_public_base_url()
+    sowa_public_url = build_public_service_url(public_base_url, 8000)
+    grafana_public_url = build_public_service_url(public_base_url, 3000)
+    prometheus_public_url = build_public_service_url(public_base_url, 9090)
 
     # 0. Kill any existing processes using our ports first!
     print("\n--- Cleaning up existing processes ---")
@@ -398,7 +436,7 @@ def main():
             stderr=f
         )
     register_process(proc_prom, "Prometheus", prom_log)
-    print(f"Prometheus started (PID {proc_prom.pid}) at http://localhost:9090")
+    print(f"Prometheus started (PID {proc_prom.pid}) at {prometheus_public_url}")
 
     # Start Node Exporter
     print("\nStarting Node Exporter...")
@@ -426,7 +464,7 @@ def main():
             stderr=f
         )
     register_process(proc_grafana, "Grafana", grafana_log)
-    print(f"Grafana started (PID {proc_grafana.pid}) at http://localhost:3000")
+    print(f"Grafana started (PID {proc_grafana.pid}) at {grafana_public_url}")
     print("  Grafana login: admin/admin")
     print("  Import dashboard: use grafana_sowa_dashboard.json!")
 
@@ -445,15 +483,15 @@ def main():
             stderr=f
         )
     register_process(proc_api, "FastAPI Backend", api_log)
-    print(f"Backend started (PID {proc_api.pid}) at http://localhost:8000")
+    print(f"Backend started (PID {proc_api.pid}) at {sowa_public_url}")
 
     print("\n" + "="*70)
     print("🎉 ALL SERVICES STARTED SUCCESSFULLY! 🎉")
     print("="*70)
-    print("  - SOWA UI:         http://localhost:8000")
-    print("  - Prometheus:      http://localhost:9090")
+    print(f"  - SOWA UI:         {sowa_public_url}")
+    print(f"  - Prometheus:      {prometheus_public_url}")
     print("  - Node Exporter:   http://localhost:9100")
-    print("  - Grafana:         http://localhost:3000")
+    print(f"  - Grafana:         {grafana_public_url}")
     print("\nPress Ctrl+C to stop everything gracefully!")
     print("="*70)
 
