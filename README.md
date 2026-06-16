@@ -62,9 +62,14 @@ simulator -> devops -> end
 
 ```text
 .
+├── api.py
 ├── README.md
 ├── requirements.txt
-├── app.py
+├── setup_and_run.py
+├── frontend/
+│   ├── src/
+│   ├── index.html
+│   └── package.json
 └── sowa/
     ├── __init__.py
     ├── agents.py
@@ -106,18 +111,13 @@ For a more production-like telemetry source inside your JupyterHub pod:
 
 ### Option 1: Use the Automated Scripts (Recommended)
 
-We've included two scripts to automate the setup:
+Use the built-in one-click setup script:
 
-#### Bash Script (Linux-only)
 ```bash
-chmod +x start_prometheus_stack.sh
-./start_prometheus_stack.sh
+python setup_and_run.py
 ```
 
-#### Python Script (Cross-platform)
-```bash
-python start_prometheus_stack.py
-```
+This script is intended for the Linux-based AMD Developer Cloud or similar Linux environments because it downloads Linux binaries for Prometheus, Node Exporter, Grafana, and Node.js.
 
 ### Option 2: Manual Setup
 
@@ -230,6 +230,8 @@ That's it! No other steps needed!
 python setup_and_run.py
 ```
 
+If you are not on Linux, use the manual setup path instead. The one-click script intentionally exits early on unsupported operating systems instead of attempting a broken install.
+
 ### Done! Open your browsers!
 1. **SOWA UI**: http://localhost:8000
 2. **Grafana Dashboards**: http://localhost:3000
@@ -245,7 +247,8 @@ Press **Ctrl+C** in the terminal — all services will stop cleanly!
 ## (Optional) Manual Setup Steps (for advanced use)
 For full control, you can still use the individual scripts:
 - `api.py`: Start just the FastAPI backend
-- `start_all.py`: Start previously installed Prometheus/Node Exporter/Grafana + backend
+- `frontend/`: Build or run the React UI separately with Vite
+- `sowa/`: Core scheduling, telemetry, and workload logic used by the backend
 
 ---
 
@@ -286,7 +289,7 @@ Default username/password: `admin`/`admin` (you'll be prompted to change it!)
 
 ---
 
-On first launch the app downloads `Qwen/Qwen2.5-7B-Instruct`, so backend startup may take a while.
+On first launch the app may download `Qwen/Qwen2.5-7B-Instruct`, so backend startup may take a while when the full LLM stack is installed. If the optional LLM dependencies are unavailable, SOWA now falls back to a deterministic rule-based scheduler so the backend can still start.
 
 ## Demo Flow
 
@@ -327,5 +330,4 @@ Use this order during the hackathon demo:
 - The generated Kubernetes manifest is a placement artifact only. The app does not apply it to a live cluster.
 - If `rocm-smi` is unavailable, the demo still runs, but GPU telemetry becomes less detailed.
 - The first model download may be the slowest part of the setup because persistent storage is limited.
-
 

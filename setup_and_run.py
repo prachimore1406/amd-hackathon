@@ -1,18 +1,31 @@
 #!/usr/bin/env python3
-"""One single script to do EVERYTHING: install Node/npm, Prometheus, Node Exporter, Grafana, build frontend, install Python dependencies, and start all services!
-"""
+"""Automated setup for the Linux-based AMD Developer Cloud demo environment."""
+
+import os
+import platform
+import signal
 import subprocess
 import sys
-import time
-import signal
-from pathlib import Path
-import urllib.request
 import tarfile
-import os
+import time
+import urllib.request
+from pathlib import Path
 
 # Configuration
-BASE_DIR = Path("/workspace/shared")
-PROJECT_ROOT = Path(__file__).parent
+PROJECT_ROOT = Path(__file__).resolve().parent
+
+
+def default_base_dir() -> Path:
+    env_dir = os.getenv("SOWA_BASE_DIR")
+    if env_dir:
+        return Path(env_dir).expanduser()
+    if Path("/workspace/shared").exists():
+        return Path("/workspace/shared")
+    return PROJECT_ROOT / ".sowa_runtime"
+
+
+BASE_DIR = default_base_dir()
+IS_LINUX = platform.system() == "Linux"
 
 NODE_VERSION = "20.15.0"
 PROM_VERSION = "2.52.0"
@@ -28,7 +41,10 @@ processes = []
 
 def kill_existing_processes():
     """Kill any existing processes that might be using our ports or are our services!"""
-    import os
+    if not IS_LINUX:
+        print("Skipping process cleanup because automatic service management is only supported on Linux.")
+        return
+
     current_pid = str(os.getpid())
 
     # First kill by process name (but NOT our own Python process!)
@@ -45,7 +61,7 @@ def kill_existing_processes():
                     except Exception:
                         pass
             time.sleep(0.5)
-        except Exception as e:
+        except Exception:
             pass
 
     # Then kill by port
@@ -83,13 +99,13 @@ def cleanup(signum, frame):
             print(f"Error stopping process: {e}")
             try:
                 proc.kill()
-            except:
+            except Exception:
                 pass
     print("All services stopped!")
     sys.exit(0)
 
 
-def find_extracted_dir(base_name: str) -> Path:
+def find_extracted_dir(base_name: str):
     """Find the extracted directory by looking for directories that start with the base name"""
     for item in BASE_DIR.iterdir():
         if item.is_dir() and item.name.startswith(base_name):
@@ -115,7 +131,10 @@ def download_and_extract(url: str, base_name: str, tar_name: str):
         try:
             mode = "r:xz" if tar_name.endswith(".xz") else "r:gz"
             with tarfile.open(tar_path, mode) as tar:
-                tar.extractall(path=BASE_DIR, filter='data')
+                try:
+                    tar.extractall(path=BASE_DIR, filter="data")
+                except TypeError:
+                    tar.extractall(path=BASE_DIR)
             extracted_dir = find_extracted_dir(base_name)
             if not extracted_dir:
                 print(f"Error: Could not find extracted directory for {base_name}")
@@ -136,7 +155,7 @@ def get_node_npm_paths():
         npm_ver = subprocess.check_output(["npm", "-v"], text=True, stderr=subprocess.STDOUT).strip()
         print(f"Found system Node.js: {node_ver}, npm: {npm_ver}")
         return "node", "npm"
-    except:
+    except Exception:
         pass
 
     # Check our local installation
@@ -147,6 +166,12 @@ def get_node_npm_paths():
         if node_cmd.exists() and npm_cmd.exists():
             print(f"Found local Node.js installation: {node_dir.name}")
             return str(node_cmd), str(npm_cmd)
+
+    if not IS_LINUX:
+        raise RuntimeError(
+            "Node.js/npm are not available and automatic installation is only supported on Linux. "
+            "Install Node.js manually or run this script in the AMD Developer Cloud Linux environment."
+        )
 
     # Install Node.js
     print("\nNode.js/npm not found! Installing now...")
@@ -167,16 +192,31 @@ def install_python_deps():
     subprocess.run([sys.executable, "-m", "pip", "install", "-r", str(req_file)], check=True)
 
 
+def require_linux_environment() -> None:
+    if IS_LINUX:
+        return
+
+    print("=" * 70)
+    print("SOWA automated setup is supported on Linux AMD/Jupyter environments only.")
+    print(f"Detected platform: {platform.system()}")
+    print("This script downloads Linux binaries for Prometheus, Node Exporter, Grafana, and Node.js.")
+    print("Use manual setup or run only the backend/frontend pieces on non-Linux systems.")
+    print("=" * 70)
+    sys.exit(1)
+
+
 def main():
     # Register signal handlers
     signal.signal(signal.SIGINT, cleanup)
     signal.signal(signal.SIGTERM, cleanup)
+    require_linux_environment()
 
     print("="*70)
     print("SOWA: ONE-CLICK COMPLETE SETUP & RUN!")
     print("(Everything is included — no manual steps needed!)")
     print("="*70)
 
+    BASE_DIR.mkdir(parents=True, exist_ok=True)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
 
     # 0. Kill any existing processes using our ports first!
@@ -295,10 +335,13 @@ def main():
     # Start FastAPI backend
     print("\nStarting FastAPI Backend...")
     api_log = LOG_DIR / "backend.log"
+    api_env = os.environ.copy()
+    api_env["SOWA_TEXTFILE_DIR"] = str(textfile_dir)
     with open(api_log, "w") as f:
         proc_api = subprocess.Popen(
             [sys.executable, str(PROJECT_ROOT / "api.py")],
             cwd=str(PROJECT_ROOT),
+            env=api_env,
             stdout=f,
             stderr=f
         )
