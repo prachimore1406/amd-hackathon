@@ -21,11 +21,15 @@ echo "SOWA Prometheus Stack Setup"
 echo "================================================"
 
 # Step 1: Download and start Prometheus
-if [ ! -d "$PROM_DIR" ]; then
+mkdir -p "$BASE_DIR"
+
+# Check if Prometheus directory exists and has binary
+if [ ! -f "$PROM_DIR/prometheus" ]; then
     echo ""
     echo "1. Downloading Prometheus v$PROM_VERSION..."
-    mkdir -p "$BASE_DIR"
     cd "$BASE_DIR"
+    rm -rf "$PROM_DIR"  # Clean up any broken directory
+    rm -f prometheus-$PROM_VERSION.linux-amd64.tar.gz  # Remove potentially corrupted tar
     wget -q "https://github.com/prometheus/prometheus/releases/download/v$PROM_VERSION/prometheus-$PROM_VERSION.linux-amd64.tar.gz"
     tar xzf "prometheus-$PROM_VERSION.linux-amd64.tar.gz"
     rm "prometheus-$PROM_VERSION.linux-amd64.tar.gz"
@@ -42,6 +46,8 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:9100']
 EOF
+else
+    echo "1. Prometheus already downloaded and verified"
 fi
 
 echo ""
@@ -54,13 +60,17 @@ PROM_PID=$!
 echo "Prometheus started (PID: $PROM_PID) at http://localhost:9090"
 
 # Step 2: Download and start Node Exporter
-if [ ! -d "$NODE_EXPORTER_DIR" ]; then
+if [ ! -f "$NODE_EXPORTER_DIR/node_exporter" ]; then
     echo ""
     echo "3. Downloading Node Exporter v$NODE_EXPORTER_VERSION..."
     cd "$BASE_DIR"
+    rm -rf "$NODE_EXPORTER_DIR"  # Clean up any broken directory
+    rm -f node_exporter-$NODE_EXPORTER_VERSION.linux-amd64.tar.gz  # Remove potentially corrupted tar
     wget -q "https://github.com/prometheus/node_exporter/releases/download/v$NODE_EXPORTER_VERSION/node_exporter-$NODE_EXPORTER_VERSION.linux-amd64.tar.gz"
     tar xzf "node_exporter-$NODE_EXPORTER_VERSION.linux-amd64.tar.gz"
     rm "node_exporter-$NODE_EXPORTER_VERSION.linux-amd64.tar.gz"
+else
+    echo "3. Node Exporter already downloaded and verified"
 fi
 
 echo ""
@@ -85,6 +95,7 @@ echo "Edit 'sowa/metrics.py' and set:"
 echo "  USE_PROMETHEUS = True"
 echo ""
 echo "Logs are in: $LOG_DIR/"
+echo "Base Directory: $BASE_DIR"
 echo "To stop the stack later:"
 echo "  pkill -f './prometheus' && pkill -f './node_exporter'"
 echo "================================================"

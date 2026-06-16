@@ -32,7 +32,9 @@ else:
 def download_and_extract(url: str, dest_dir: Path):
     """Download and extract a tar.gz file"""
     dest_dir.mkdir(parents=True, exist_ok=True)
-    tar_path = dest_dir.with_suffix(".tar.gz")
+    # Store tar file directly in BASE_DIR instead of dest_dir's parent
+    tar_filename = dest_dir.name + ".tar.gz"
+    tar_path = BASE_DIR / tar_filename
 
     if not tar_path.exists():
         print(f"Downloading: {url}")
@@ -42,7 +44,9 @@ def download_and_extract(url: str, dest_dir: Path):
             print(f"Download failed: {e}")
             sys.exit(1)
 
-    if not dest_dir.exists():
+    # Check if the dest_dir exists and contains the expected binary
+    expected_bin = dest_dir / ("prometheus" if "prometheus" in dest_dir.name else "node_exporter")
+    if not dest_dir.exists() or not expected_bin.exists():
         print(f"Extracting: {tar_path.name}")
         try:
             with tarfile.open(tar_path, "r:gz") as tar:
@@ -51,7 +55,7 @@ def download_and_extract(url: str, dest_dir: Path):
             print(f"Extract failed: {e}")
             sys.exit(1)
     else:
-        print(f"Already extracted: {dest_dir.name}")
+        print(f"Already extracted and verified: {dest_dir.name}")
 
 
 def kill_existing_process(pattern: str):
@@ -97,9 +101,13 @@ scrape_configs:
     print("Starting Prometheus...")
     kill_existing_process("./prometheus --config.file=prometheus.yml")
     prom_log = LOG_DIR / "prometheus.log"
+    prom_binary = prom_dir / "prometheus"
+    if not prom_binary.exists():
+        print(f"ERROR: Prometheus binary not found at {prom_binary}!")
+        sys.exit(1)
     with open(prom_log, "w") as f:
         prom_proc = subprocess.Popen(
-            [str(prom_dir / "prometheus"), "--config.file", str(prom_config), "--web.listen-address", ":9090"],
+            [str(prom_binary), "--config.file", str(prom_config), "--web.listen-address", ":9090"],
             cwd=str(prom_dir),
             stdout=f,
             stderr=f
@@ -120,9 +128,13 @@ scrape_configs:
     print("Starting Node Exporter...")
     kill_existing_process("./node_exporter")
     node_log = LOG_DIR / "node_exporter.log"
+    node_binary = node_dir / "node_exporter"
+    if not node_binary.exists():
+        print(f"ERROR: Node Exporter binary not found at {node_binary}!")
+        sys.exit(1)
     with open(node_log, "w") as f:
         node_proc = subprocess.Popen(
-            [str(node_dir / "node_exporter"), f"--collector.textfile.directory={textfile_dir}"],
+            [str(node_binary), f"--collector.textfile.directory={textfile_dir}"],
             cwd=str(node_dir),
             stdout=f,
             stderr=f
