@@ -1,7 +1,6 @@
 import json
 import re
 
-from langchain_core.prompts import PromptTemplate
 from sowa.llm import llm
 from sowa.metrics import (
     LOCAL_NODE_NAME,
@@ -110,34 +109,35 @@ spec:
 
 
 def _parse_structured_response(response: str) -> dict:
-    # Look for the last JSON-like block to avoid issues with conversational prefix/suffix
-    matches = list(re.finditer(r"\{.*\}", response, re.DOTALL))
+    # Try candidate JSON objects from the end of the response first so we can
+    # tolerate conversational preambles/suffixes around the structured payload.
+    matches = list(re.finditer(r"\{.*?\}", response, re.DOTALL))
     if not matches:
         return {
             "reasoning": "Could not parse LLM response.",
             "decision": "General-VM",
             "risk_level": "Medium",
             "performance_explanation": "Fallback decision used.",
-            "tool_trace_summary": "Structured output missing."
+            "tool_trace_summary": "Structured output missing.",
         }
-    
-    # Try the last match as it's most likely the intended JSON block
-    last_match = matches[-1].group(0)
-    try:
-        payload = json.loads(last_match)
-    except json.JSONDecodeError:
-        # If last match fails, try the first one as a backup
+
+    payload = None
+    for match in reversed(matches):
         try:
-            payload = json.loads(matches[0].group(0))
+            payload = json.loads(match.group(0))
+            break
         except json.JSONDecodeError:
-            return {
-                "reasoning": "Invalid JSON format in LLM response.",
-                "decision": "General-VM",
-                "risk_level": "Medium",
-                "performance_explanation": "Fallback decision used.",
-                "tool_trace_summary": "Invalid JSON response."
-            }
-    
+            continue
+
+    if payload is None:
+        return {
+            "reasoning": "Invalid JSON format in LLM response.",
+            "decision": "General-VM",
+            "risk_level": "Medium",
+            "performance_explanation": "Fallback decision used.",
+            "tool_trace_summary": "Invalid JSON response.",
+        }
+
     return {
         "reasoning": str(payload.get("reasoning", "No reasoning provided.")),
         "decision": _normalize_decision(str(payload.get("decision", "General-VM"))),
@@ -156,6 +156,7 @@ def simulator_agent(state: MultiAgentState) -> MultiAgentState:
         "cluster_status_text": snapshot["cluster_status_text"],
         "local_telemetry_text": snapshot["local_telemetry_text"],
         "telemetry_source": snapshot["telemetry_source"],
+        "node_loads": snapshot["node_loads"],
         "current_workload": workload,
         "tool_trace": state.get("tool_trace", ""),
         "risk_level": state.get("risk_level", "Medium"),
@@ -170,13 +171,13 @@ def devops_agent(state: MultiAgentState) -> MultiAgentState:
         "Tool 1: get_live_telemetry() -> refreshed local telemetry without advancing simulator\n"
         f"Tool 2: get_recent_gpu_event() -> {recent_gpu_event}"
     )
-    prompt = PromptTemplate.from_template("""
+    prompt = f"""
     You are an AI DevOps Orchestrator managing an AMD cluster.
-    Cluster Status: {status}
-    Local Telemetry Source: {telemetry_source}
-    Local Telemetry Details: {local_telemetry}
+    Cluster Status: {live_snapshot["cluster_status_text"]}
+    Local Telemetry Source: {live_snapshot.get("telemetry_source", state.get("telemetry_source", "simulated"))}
+    Local Telemetry Details: {live_snapshot.get("local_telemetry_text", state.get("local_telemetry_text", "Unavailable"))}
     Recent GPU Event Tool: {recent_gpu_event}
-    Incoming Workload: {workload}
+    Incoming Workload: {state["current_workload"]}
 
     Rules:
     - ML Training prefers AMD-Instinct-GPU.
@@ -187,14 +188,8 @@ def devops_agent(state: MultiAgentState) -> MultiAgentState:
 
     Return exactly one JSON object with keys:
     reasoning, decision, risk_level, performance_explanation, tool_trace_summary
-    """)
-    response = (prompt | llm).invoke({
-        "status": live_snapshot["cluster_status_text"],
-        "telemetry_source": live_snapshot.get("telemetry_source", state.get("telemetry_source", "simulated")),
-        "local_telemetry": live_snapshot.get("local_telemetry_text", state.get("local_telemetry_text", "Unavailable")),
-        "recent_gpu_event": recent_gpu_event,
-        "workload": state["current_workload"],
-    })
+    """.strip()
+    response = llm.invoke(prompt)
     parsed = _parse_structured_response(response)
     decision = parsed["decision"]
     workload_name = state["current_workload"].split("|")[0].replace("Name:", "").strip().lower().replace(" ", "-")

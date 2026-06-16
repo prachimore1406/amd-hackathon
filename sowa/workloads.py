@@ -1,17 +1,37 @@
+import os
 import threading
 import time
 from pathlib import Path
 from typing import List
 
-import torch
+try:
+    import torch
+except ImportError:  # pragma: no cover - handled at runtime when ML deps are absent
+    torch = None
 
 
 _ACTIVE_WORKLOADS: List[str] = []
 _LOCK = threading.Lock()
 _LAST_GPU_SPIKE_AT = 0.0
 _GPU_SPIKE_WINDOW_SEC = 20
-# Textfile collector directory for node_exporter
-TEXTFILE_DIR = Path("/workspace/shared") / "node_exporter-1.8.2.linux-amd64" / "textfile_collector"
+
+
+def _default_textfile_dir() -> Path:
+    env_dir = os.getenv("SOWA_TEXTFILE_DIR")
+    if env_dir:
+        return Path(env_dir).expanduser()
+
+    project_root = Path(__file__).resolve().parent.parent
+    bundled_exporters = sorted(project_root.glob("node_exporter-*/textfile_collector"))
+    if bundled_exporters:
+        return bundled_exporters[0]
+
+    return project_root / ".sowa_metrics"
+
+
+# Textfile collector directory for node_exporter. Falls back to a local project dir
+# so the backend can still import and run without the optional monitoring stack.
+TEXTFILE_DIR = _default_textfile_dir()
 TEXTFILE_DIR.mkdir(parents=True, exist_ok=True)
 TEXTFILE_PATH = TEXTFILE_DIR / "sowa_gpu_spike.prom"
 
@@ -91,7 +111,7 @@ def _gpu_job(name: str, duration_sec: int = 12) -> None:
     label = f"{name} [GPU]"
     _add_job(label)
     try:
-        if not torch.cuda.is_available():
+        if torch is None or not torch.cuda.is_available():
             time.sleep(2)
             return
         device = torch.device("cuda")
@@ -111,7 +131,7 @@ def _gpu_spike_job(duration_sec: int = 4, matrix_size: int = 4096, warmup_iterat
     label = "Demo-GPU-Spike [GPU-SPIKE]"
     _add_job(label)
     try:
-        if not torch.cuda.is_available():
+        if torch is None or not torch.cuda.is_available():
             time.sleep(1)
             return
 
@@ -181,6 +201,8 @@ def trigger_real_gpu_spike() -> str:
 
     thread = threading.Thread(target=_gpu_spike_job, daemon=True)
     thread.start()
-    if torch.cuda.is_available():
+    if torch is not None and torch.cuda.is_available():
         return "Started a bounded real GPU spike on the notebook GPU for demo purposes. Refresh telemetry in a few seconds to observe the contention signal."
+    if torch is None:
+        return "PyTorch is not installed in this environment, so the real GPU spike could not start."
     return "CUDA/ROCm device is not available in this session, so the real GPU spike could not start."
