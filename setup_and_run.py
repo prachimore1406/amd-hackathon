@@ -27,24 +27,48 @@ processes = []
 
 
 def kill_existing_processes():
-    """Kill any existing processes that might be using our ports!"""
+    """Kill any existing processes that might be using our ports or are our services!"""
+    import os
+    current_pid = str(os.getpid())
+
+    # First kill by process name (but NOT our own Python process!)
+    service_names = ["prometheus", "node_exporter", "grafana-server"]
+    for name in service_names:
+        try:
+            # Use pgrep first to get PIDs
+            result = subprocess.run(["pgrep", "-f", name], capture_output=True, text=True, check=False)
+            pids = result.stdout.strip().split("\n")
+            for pid in pids:
+                if pid and pid != current_pid:
+                    try:
+                        subprocess.run(["kill", "-9", pid], capture_output=True, check=False)
+                    except Exception:
+                        pass
+            time.sleep(0.5)
+        except Exception as e:
+            pass
+
+    # Then kill by port
     ports = [9090, 9100, 3000, 8000]
     for port in ports:
         try:
-            # Try using fuser (Linux standard tool)
-            subprocess.run(["fuser", "-k", f"{port}/tcp"], capture_output=True, text=True, check=False)
-            time.sleep(0.5)
-        except FileNotFoundError:
+            # Try lsof first to get PIDs so we can skip our own process
             try:
-                # Try lsof if fuser is not found
                 result = subprocess.run(["lsof", "-t", f"-i:{port}"], capture_output=True, text=True, check=False)
                 pids = result.stdout.strip().split("\n")
                 for pid in pids:
-                    if pid:
-                        subprocess.run(["kill", "-9", pid], capture_output=True, check=False)
+                    if pid and pid != current_pid:
+                        try:
+                            subprocess.run(["kill", "-9", pid], capture_output=True, check=False)
+                        except Exception:
+                            pass
                 time.sleep(0.5)
-            except Exception as e:
-                print(f"Warning: Could not kill processes on port {port}: {e}")
+            except FileNotFoundError:
+                # Try using fuser if lsof not found
+                subprocess.run(["fuser", "-k", "-9", f"{port}/tcp"], capture_output=True, text=True, check=False)
+                time.sleep(0.5)
+        except Exception as e:
+            print(f"Warning: Could not kill processes on port {port}: {e}")
 
 
 def cleanup(signum, frame):
