@@ -70,7 +70,7 @@ def download_and_extract(url: str, base_name: str, tar_name: str):
         try:
             mode = "r:xz" if tar_name.endswith(".xz") else "r:gz"
             with tarfile.open(tar_path, mode) as tar:
-                tar.extractall(path=BASE_DIR)
+                tar.extractall(path=BASE_DIR, filter='data')
             extracted_dir = find_extracted_dir(base_name)
             if not extracted_dir:
                 print(f"Error: Could not find extracted directory for {base_name}")
@@ -95,8 +95,7 @@ def get_node_npm_paths():
         pass
 
     # Check our local installation
-    node_base_name = f"node-v{NODE_VERSION}"
-    node_dir = find_extracted_dir(node_base_name)
+    node_dir = find_extracted_dir("node-")
     if node_dir:
         node_cmd = node_dir / "bin" / "node"
         npm_cmd = node_dir / "bin" / "npm"
@@ -107,7 +106,7 @@ def get_node_npm_paths():
     # Install Node.js
     print("\nNode.js/npm not found! Installing now...")
     node_url = f"https://nodejs.org/dist/v{NODE_VERSION}/node-v{NODE_VERSION}-linux-x64.tar.xz"
-    node_dir = download_and_extract(node_url, node_base_name, f"node-v{NODE_VERSION}-linux-x64.tar.xz")
+    node_dir = download_and_extract(node_url, "node-", f"node-v{NODE_VERSION}-linux-x64.tar.xz")
     node_cmd = node_dir / "bin" / "node"
     npm_cmd = node_dir / "bin" / "npm"
     return str(node_cmd), str(npm_cmd)
@@ -143,9 +142,12 @@ def main():
 
     # 3. Set up Prometheus
     print("\n--- Setting up Prometheus ---")
-    prom_base_name = f"prometheus-{PROM_VERSION}"
-    prom_url = f"https://github.com/prometheus/prometheus/releases/download/v{PROM_VERSION}/prometheus-{PROM_VERSION}.linux-amd64.tar.gz"
-    prom_dir = download_and_extract(prom_url, prom_base_name, f"prometheus-{PROM_VERSION}.linux-amd64.tar.gz")
+    prom_dir = find_extracted_dir("prometheus-")
+    if not prom_dir:
+        prom_url = f"https://github.com/prometheus/prometheus/releases/download/v{PROM_VERSION}/prometheus-{PROM_VERSION}.linux-amd64.tar.gz"
+        prom_dir = download_and_extract(prom_url, "prometheus-", f"prometheus-{PROM_VERSION}.linux-amd64.tar.gz")
+    else:
+        print(f"Found existing Prometheus directory: {prom_dir.name}")
     # Write prometheus config
     prom_config = prom_dir / "prometheus.yml"
     print(f"Writing Prometheus config to {prom_config}")
@@ -165,18 +167,25 @@ def main():
 
     # 4. Set up Node Exporter
     print("\n--- Setting up Node Exporter ---")
-    ne_base_name = f"node_exporter-{NODE_EXPORTER_VERSION}"
-    ne_url = f"https://github.com/prometheus/node_exporter/releases/download/v{NODE_EXPORTER_VERSION}/node_exporter-{NODE_EXPORTER_VERSION}.linux-amd64.tar.gz"
-    ne_dir = download_and_extract(ne_url, ne_base_name, f"node_exporter-{NODE_EXPORTER_VERSION}.linux-amd64.tar.gz")
+    ne_dir = find_extracted_dir("node_exporter-")
+    if not ne_dir:
+        ne_url = f"https://github.com/prometheus/node_exporter/releases/download/v{NODE_EXPORTER_VERSION}/node_exporter-{NODE_EXPORTER_VERSION}.linux-amd64.tar.gz"
+        ne_dir = download_and_extract(ne_url, "node_exporter-", f"node_exporter-{NODE_EXPORTER_VERSION}.linux-amd64.tar.gz")
+    else:
+        print(f"Found existing Node Exporter directory: {ne_dir.name}")
     # Create textfile collector directory
     textfile_dir = ne_dir / "textfile_collector"
     textfile_dir.mkdir(parents=True, exist_ok=True)
 
     # 5. Set up Grafana (MANDATORY!)
     print("\n--- Setting up Grafana ---")
-    grafana_base_name = f"grafana-{GRAFANA_VERSION}"
-    grafana_url = f"https://dl.grafana.com/oss/release/grafana-{GRAFANA_VERSION}.linux-amd64.tar.gz"
-    grafana_dir = download_and_extract(grafana_url, grafana_base_name, f"grafana-{GRAFANA_VERSION}.linux-amd64.tar.gz")
+    # Check for both possible prefixes (grafana-VERSION and grafana-vVERSION)
+    grafana_dir = find_extracted_dir("grafana-")
+    if not grafana_dir:
+        grafana_url = f"https://dl.grafana.com/oss/release/grafana-{GRAFANA_VERSION}.linux-amd64.tar.gz"
+        grafana_dir = download_and_extract(grafana_url, "grafana-", f"grafana-{GRAFANA_VERSION}.linux-amd64.tar.gz")
+    else:
+        print(f"Found existing Grafana directory: {grafana_dir.name}")
 
     # 6. Build frontend
     print("\n--- Building React Frontend ---")
