@@ -3,8 +3,11 @@
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional
+from pathlib import Path
 
 from sowa.workflow import create_workflow
 from sowa.workloads import (
@@ -144,6 +147,20 @@ async def reset_demo():
     current_state = initial_state_dict()
     stop_stress_jobs()
     return SOWAState(**current_state)
+
+
+# Serve static React build files
+frontend_dist_path = Path(__file__).parent / "frontend" / "dist"
+if frontend_dist_path.exists():
+    app.mount("/static", StaticFiles(directory=str(frontend_dist_path)), name="static")
+    
+    # Serve index.html for all non-API routes (SPA fallback)
+    @app.get("/{full_path:path}")
+    async def serve_react_app(full_path: str):
+        index_path = frontend_dist_path / "index.html"
+        if index_path.exists():
+            return FileResponse(str(index_path))
+        return {"detail": "Not Found"}
 
 
 if __name__ == "__main__":

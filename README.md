@@ -215,32 +215,77 @@ Optional GPU tooling check:
 which rocm-smi || command -v rocm-smi
 ```
 
-## Run The App
+## (RECOMMENDED) ONE-CLICK COMPLETE SETUP! 🚀
 
-This is the only UI option: professional React UI with FastAPI backend!
+Just run **ONE SINGLE SCRIPT** — `setup_and_run.py` — it does *EVERYTHING* automatically:
+1. Installs Python dependencies
+2. Installs Node.js/npm (if not present)
+3. Installs Prometheus, Node Exporter, and Grafana
+4. Builds the React frontend
+5. Starts ALL services together!
 
-1. **Install Python dependencies first**:
+### Step 1: Run the ONE-CLICK Script!
+That's it! No other steps needed!
 ```bash
-pip install -r requirements.txt
+python setup_and_run.py
 ```
 
-2. **Start the FastAPI backend server**:
-```bash
-python api.py
-```
-This runs on http://localhost:8000
+### Done! Open your browsers!
+1. **SOWA UI**: http://localhost:8000
+2. **Grafana Dashboards**: http://localhost:3000
+   - Login: `admin` / `admin`
+   - Import dashboard: Upload `grafana_sowa_dashboard.json` from the project root!
+3. **Prometheus**: http://localhost:9090
 
-3. **In a new terminal, start the React frontend**:
-```bash
-cd frontend
-npm install
-npm run dev
-```
-This runs on http://localhost:5173
-
-Open http://localhost:5173 in your browser! The frontend proxies API calls to the FastAPI backend automatically!
+### Stop everything gracefully:
+Press **Ctrl+C** in the terminal — all services will stop cleanly!
 
 ---
+
+## (Optional) Manual Setup Steps (for advanced use)
+For full control, you can still use the individual scripts:
+- `api.py`: Start just the FastAPI backend
+- `start_all.py`: Start previously installed Prometheus/Node Exporter/Grafana + backend
+
+---
+
+## Grafana Pre-Built Dashboards (Optional!)
+
+For beautiful, pre-built visualizations instead of manual PromQL queries, set up Grafana!
+
+### Install Grafana on AMD Jupyter Environment
+
+1. **Download Grafana**:
+```bash
+cd /workspace/shared
+wget https://dl.grafana.com/oss/release/grafana-11.1.0.linux-amd64.tar.gz
+tar -xzf grafana-11.1.0.linux-amd64.tar.gz
+```
+
+2. **Run Grafana**:
+```bash
+cd /workspace/shared/grafana-11.1.0
+./bin/grafana-server web &
+```
+Grafana runs at http://localhost:3000!
+
+3. **Login**:
+Default username/password: `admin`/`admin` (you'll be prompted to change it!)
+
+4. **Add Prometheus Data Source**:
+- Go to **Connections > Data Sources > Add New Data Source**
+- Select **Prometheus**
+- Set URL to `http://localhost:9090`
+- Click "Save & Test"
+
+5. **Import SOWA Dashboard**:
+- Go to **Dashboards > New > Import**
+- Click "Upload JSON file" and select `grafana_sowa_dashboard.json` from the project root!
+- Select your Prometheus data source!
+- Click "Import"! That's it!
+
+---
+
 On first launch the app downloads `Qwen/Qwen2.5-7B-Instruct`, so backend startup may take a while.
 
 ## Demo Flow
