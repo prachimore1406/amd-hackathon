@@ -37,6 +37,7 @@ LOG_DIR = BASE_DIR / "sowa_prom_logs"
 
 # Process trackers
 processes = []
+process_metadata = {}
 
 
 def kill_existing_processes():
@@ -103,6 +104,31 @@ def cleanup(signum, frame):
                 pass
     print("All services stopped!")
     sys.exit(0)
+
+
+def register_process(proc, service_name: str, log_path: Path) -> None:
+    processes.append(proc)
+    process_metadata[proc.pid] = {"name": service_name, "log_path": log_path}
+
+
+def print_log_tail(service_name: str, log_path: Path, tail_lines: int = 80) -> None:
+    print(f"\n----- {service_name} log: {log_path} -----")
+    try:
+        if not log_path.exists():
+            print("Log file does not exist yet.")
+            return
+
+        lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        if not lines:
+            print("Log file is empty.")
+            return
+
+        for line in lines[-tail_lines:]:
+            print(line)
+    except Exception as exc:
+        print(f"Could not read log file: {exc}")
+    finally:
+        print(f"----- end {service_name} log -----\n")
 
 
 def find_extracted_dir(base_name: str):
@@ -218,6 +244,7 @@ def main():
 
     BASE_DIR.mkdir(parents=True, exist_ok=True)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
+    print(f"Service logs directory: {LOG_DIR}")
 
     # 0. Kill any existing processes using our ports first!
     print("\n--- Cleaning up existing processes ---")
@@ -301,7 +328,7 @@ def main():
             stdout=f,
             stderr=f
         )
-    processes.append(proc_prom)
+    register_process(proc_prom, "Prometheus", prom_log)
     print(f"Prometheus started (PID {proc_prom.pid}) at http://localhost:9090")
 
     # Start Node Exporter
@@ -314,7 +341,7 @@ def main():
             stdout=f,
             stderr=f
         )
-    processes.append(proc_ne)
+    register_process(proc_ne, "Node Exporter", ne_log)
     print(f"Node Exporter started (PID {proc_ne.pid}) at http://localhost:9100")
 
     # Start Grafana
@@ -327,7 +354,7 @@ def main():
             stdout=f,
             stderr=f
         )
-    processes.append(proc_grafana)
+    register_process(proc_grafana, "Grafana", grafana_log)
     print(f"Grafana started (PID {proc_grafana.pid}) at http://localhost:3000")
     print("  Grafana login: admin/admin")
     print("  Import dashboard: use grafana_sowa_dashboard.json!")
@@ -337,15 +364,16 @@ def main():
     api_log = LOG_DIR / "backend.log"
     api_env = os.environ.copy()
     api_env["SOWA_TEXTFILE_DIR"] = str(textfile_dir)
+    api_env["PYTHONUNBUFFERED"] = "1"
     with open(api_log, "w") as f:
         proc_api = subprocess.Popen(
-            [sys.executable, str(PROJECT_ROOT / "api.py")],
+            [sys.executable, "-u", str(PROJECT_ROOT / "api.py")],
             cwd=str(PROJECT_ROOT),
             env=api_env,
             stdout=f,
             stderr=f
         )
-    processes.append(proc_api)
+    register_process(proc_api, "FastAPI Backend", api_log)
     print(f"Backend started (PID {proc_api.pid}) at http://localhost:8000")
 
     print("\n" + "="*70)
@@ -364,7 +392,12 @@ def main():
         # Check if any process died
         for proc in processes:
             if proc.poll() is not None:
-                print(f"ERROR: Process {proc.args[0]} (PID {proc.pid}) died unexpectedly!")
+                metadata = process_metadata.get(proc.pid, {})
+                service_name = metadata.get("name", proc.args[0])
+                log_path = metadata.get("log_path")
+                print(f"ERROR: Process {service_name} (PID {proc.pid}) died unexpectedly with exit code {proc.returncode}!")
+                if log_path:
+                    print_log_tail(service_name, log_path)
                 cleanup(None, None)
 
 
