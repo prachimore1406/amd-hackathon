@@ -80,26 +80,30 @@ def main():
     prom_url = f"https://github.com/prometheus/prometheus/releases/download/v{PROM_VERSION}/prometheus-{PROM_VERSION}.{arch}.tar.gz"
     download_and_extract(prom_url, prom_dir)
 
-    # Write prometheus.yml (ALWAYS OVERWRITE to ensure config is correct!)
+    # Write prometheus.yml (ALWAYS OVERWRITE, PERFECTLY FORMATTED!)
     prom_config = prom_dir / "prometheus.yml"
     print("Writing prometheus.yml...")
-    prom_config.write_text("""
-global:
-  scrape_interval: 15s
-scrape_configs:
-  - job_name: 'prometheus'
-    static_configs:
-      - targets: ['127.0.0.1:9090']
-  - job_name: 'node'
-    static_configs:
-      - targets: ['127.0.0.1:9100']
-    metrics_path: /metrics
-""".strip())
+    yaml_content = (
+        "global:\n"
+        "  scrape_interval: 15s\n"
+        "scrape_configs:\n"
+        "  - job_name: 'prometheus'\n"
+        "    static_configs:\n"
+        "      - targets: ['127.0.0.1:9090']\n"
+        "  - job_name: 'node'\n"
+        "    static_configs:\n"
+        "      - targets: ['127.0.0.1:9100']\n"
+        "    metrics_path: /metrics\n"
+    )
+    prom_config.write_text(yaml_content)
+    # Verify file was written correctly
+    print("  prometheus.yml contents:")
+    print("  " + prom_config.read_text().replace("\n", "\n  "))
 
     # Start Prometheus
     print()
     print("Starting Prometheus...")
-    kill_existing_process("./prometheus --config.file=prometheus.yml")
+    kill_existing_process("./prometheus")
     prom_log = LOG_DIR / "prometheus.log"
     prom_binary = prom_dir / "prometheus"
     if not prom_binary.exists():

@@ -1,44 +1,40 @@
 #!/bin/bash
-
-# SOWA Prometheus Stack Startup Script
-# This script downloads, configures, and runs Prometheus and Node Exporter in a single GPU pod
-
-set -e  # Exit on error
+set -e
 
 # Configuration
 PROM_VERSION="2.52.0"
 NODE_EXPORTER_VERSION="1.8.2"
 BASE_DIR="/workspace/shared"
-PROM_DIR="$BASE_DIR/prometheus-$PROM_VERSION.linux-amd64"
-NODE_EXPORTER_DIR="$BASE_DIR/node_exporter-$NODE_EXPORTER_VERSION.linux-amd64"
 LOG_DIR="$BASE_DIR/sowa_prom_logs"
+
+# Architecture detection
+ARCH="linux-amd64"
 
 # Create log directory
 mkdir -p "$LOG_DIR"
 
 echo "================================================"
-echo "SOWA Prometheus Stack Setup"
+echo "SOWA Prometheus Stack Setup (Bash)"
 echo "================================================"
 
-# Step 1: Download and start Prometheus
-mkdir -p "$BASE_DIR"
+# Step 1: Setup Prometheus
+PROM_DIR="$BASE_DIR/prometheus-${PROM_VERSION}.${ARCH}"
+PROM_URL="https://github.com/prometheus/prometheus/releases/download/v${PROM_VERSION}/prometheus-${PROM_VERSION}.${ARCH}.tar.gz"
 
-# Check if Prometheus directory exists and has binary
-if [ ! -f "$PROM_DIR/prometheus" ]; then
-    echo ""
-    echo "1. Downloading Prometheus v$PROM_VERSION..."
-    cd "$BASE_DIR"
-    rm -rf "$PROM_DIR"  # Clean up any broken directory
-    rm -f prometheus-$PROM_VERSION.linux-amd64.tar.gz  # Remove potentially corrupted tar
-    wget -q "https://github.com/prometheus/prometheus/releases/download/v$PROM_VERSION/prometheus-$PROM_VERSION.linux-amd64.tar.gz"
-    tar xzf "prometheus-$PROM_VERSION.linux-amd64.tar.gz"
-    rm "prometheus-$PROM_VERSION.linux-amd64.tar.gz"
-else
-    echo "1. Prometheus already downloaded and verified"
+# Download and extract
+if [ ! -f "$BASE_DIR/prometheus-${PROM_VERSION}.${ARCH}.tar.gz" ]; then
+    echo "Downloading Prometheus..."
+    wget -q -O "$BASE_DIR/prometheus-${PROM_VERSION}.${ARCH}.tar.gz" "$PROM_URL"
 fi
 
-# ALWAYS write the prometheus.yml config!
-echo "2. Writing prometheus.yml config..."
+if [ ! -f "$PROM_DIR/prometheus" ]; then
+    echo "Extracting Prometheus..."
+    cd "$BASE_DIR"
+    tar -xzf "prometheus-${PROM_VERSION}.${ARCH}.tar.gz"
+fi
+
+# Write prometheus.yml ALWAYS, perfectly formatted!
+echo "Writing prometheus.yml..."
 cat > "$PROM_DIR/prometheus.yml" << 'EOF'
 global:
   scrape_interval: 15s
@@ -51,37 +47,43 @@ scrape_configs:
       - targets: ['127.0.0.1:9100']
     metrics_path: /metrics
 EOF
+# Verify
+echo "  prometheus.yml contents:"
+cat "$PROM_DIR/prometheus.yml" | sed 's/^/  /'
 
+# Kill existing prometheus
 echo ""
-echo "3. Starting Prometheus..."
+echo "Starting Prometheus..."
+pkill -f "./prometheus" || true
 cd "$PROM_DIR"
-# Kill existing Prometheus if running
-pkill -f "./prometheus --config.file=prometheus.yml" 2>/dev/null || true
-nohup ./prometheus --config.file=prometheus.yml --web.listen-address=:9090 > "$LOG_DIR/prometheus.log" 2>&1 &
+nohup ./prometheus --config.file="$PROM_DIR/prometheus.yml" --web.listen-address=:9090 > "$LOG_DIR/prometheus.log" 2>&1 &
 PROM_PID=$!
 echo "Prometheus started (PID: $PROM_PID) at http://localhost:9090"
 
-# Step 2: Download and start Node Exporter
-if [ ! -f "$NODE_EXPORTER_DIR/node_exporter" ]; then
+# Step 2: Setup Node Exporter
+NODE_EXPORTER_DIR="$BASE_DIR/node_exporter-${NODE_EXPORTER_VERSION}.${ARCH}"
+NODE_EXPORTER_URL="https://github.com/prometheus/node_exporter/releases/download/v${NODE_EXPORTER_VERSION}/node_exporter-${NODE_EXPORTER_VERSION}.${ARCH}.tar.gz"
+
+# Download and extract
+if [ ! -f "$BASE_DIR/node_exporter-${NODE_EXPORTER_VERSION}.${ARCH}.tar.gz" ]; then
     echo ""
-    echo "4. Downloading Node Exporter v$NODE_EXPORTER_VERSION..."
-    cd "$BASE_DIR"
-    rm -rf "$NODE_EXPORTER_DIR"  # Clean up any broken directory
-    rm -f node_exporter-$NODE_EXPORTER_VERSION.linux-amd64.tar.gz  # Remove potentially corrupted tar
-    wget -q "https://github.com/prometheus/node_exporter/releases/download/v$NODE_EXPORTER_VERSION/node_exporter-$NODE_EXPORTER_VERSION.linux-amd64.tar.gz"
-    tar xzf "node_exporter-$NODE_EXPORTER_VERSION.linux-amd64.tar.gz"
-    rm "node_exporter-$NODE_EXPORTER_VERSION.linux-amd64.tar.gz"
-else
-    echo "4. Node Exporter already downloaded and verified"
+    echo "Downloading Node Exporter..."
+    wget -q -O "$BASE_DIR/node_exporter-${NODE_EXPORTER_VERSION}.${ARCH}.tar.gz" "$NODE_EXPORTER_URL"
 fi
 
+if [ ! -f "$NODE_EXPORTER_DIR/node_exporter" ]; then
+    echo "Extracting Node Exporter..."
+    cd "$BASE_DIR"
+    tar -xzf "node_exporter-${NODE_EXPORTER_VERSION}.${ARCH}.tar.gz"
+fi
+
+# Create textfile collector directory
 echo ""
-echo "5. Starting Node Exporter..."
+echo "Starting Node Exporter..."
+mkdir -p "$NODE_EXPORTER_DIR/textfile_collector"
+# Kill existing node exporter
+pkill -f "./node_exporter" || true
 cd "$NODE_EXPORTER_DIR"
-# Create textfile collector directory for SOWA metrics
-mkdir -p "textfile_collector"
-# Kill existing Node Exporter if running
-pkill -f "./node_exporter" 2>/dev/null || true
 nohup ./node_exporter --collector.textfile.directory="textfile_collector" > "$LOG_DIR/node_exporter.log" 2>&1 &
 NODE_PID=$!
 echo "Node Exporter started (PID: $NODE_PID) at http://localhost:9100"
@@ -96,7 +98,7 @@ echo "To use Prometheus with SOWA:"
 echo "Edit 'sowa/metrics.py' and set:"
 echo "  USE_PROMETHEUS = True"
 echo ""
-echo "Logs are in: $LOG_DIR/"
+echo "Logs are in: $LOG_DIR"
 echo "Base Directory: $BASE_DIR"
 echo "To stop the stack later:"
 echo "  pkill -f './prometheus' && pkill -f './node_exporter'"
