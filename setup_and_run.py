@@ -184,6 +184,15 @@ def get_node_npm_paths():
     except Exception:
         pass
 
+
+def build_node_env(node_cmd: str) -> dict:
+    """Ensure npm can find the matching node binary even when Node is locally installed."""
+    env = os.environ.copy()
+    node_bin_dir = str(Path(node_cmd).resolve().parent) if node_cmd != "node" else ""
+    if node_bin_dir:
+        env["PATH"] = f"{node_bin_dir}:{env.get('PATH', '')}"
+    return env
+
     # Check our local installation
     node_dir = find_extracted_dir("node-")
     if node_dir:
@@ -307,12 +316,13 @@ def main():
     print("\n--- Building React Frontend ---")
     frontend_dir = PROJECT_ROOT / "frontend"
     frontend_dist = frontend_dir / "dist"
+    node_env = build_node_env(node_cmd)
     if not frontend_dist.exists() or not (frontend_dist / "index.html").exists():
         print("Frontend not built yet — installing deps and building...")
         # Install frontend dependencies
-        subprocess.run([npm_cmd, "install"], cwd=str(frontend_dir), check=True)
+        subprocess.run([npm_cmd, "install"], cwd=str(frontend_dir), env=node_env, check=True)
         # Build frontend
-        subprocess.run([npm_cmd, "run", "build"], cwd=str(frontend_dir), check=True)
+        subprocess.run([npm_cmd, "run", "build"], cwd=str(frontend_dir), env=node_env, check=True)
     else:
         print("Frontend already built!")
 
