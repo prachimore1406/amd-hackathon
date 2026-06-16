@@ -26,6 +26,27 @@ LOG_DIR = BASE_DIR / "sowa_prom_logs"
 processes = []
 
 
+def kill_existing_processes():
+    """Kill any existing processes that might be using our ports!"""
+    ports = [9090, 9100, 3000, 8000]
+    for port in ports:
+        try:
+            # Try using fuser (Linux standard tool)
+            subprocess.run(["fuser", "-k", f"{port}/tcp"], capture_output=True, text=True, check=False)
+            time.sleep(0.5)
+        except FileNotFoundError:
+            try:
+                # Try lsof if fuser is not found
+                result = subprocess.run(["lsof", "-t", f"-i:{port}"], capture_output=True, text=True, check=False)
+                pids = result.stdout.strip().split("\n")
+                for pid in pids:
+                    if pid:
+                        subprocess.run(["kill", "-9", pid], capture_output=True, check=False)
+                time.sleep(0.5)
+            except Exception as e:
+                print(f"Warning: Could not kill processes on port {port}: {e}")
+
+
 def cleanup(signum, frame):
     """Cleanup all running processes on exit!"""
     print("\nShutting down all services...")
@@ -133,6 +154,10 @@ def main():
     print("="*70)
 
     LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+    # 0. Kill any existing processes using our ports first!
+    print("\n--- Cleaning up existing processes ---")
+    kill_existing_processes()
 
     # 1. Install Python dependencies first
     install_python_deps()
