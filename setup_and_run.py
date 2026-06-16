@@ -266,25 +266,37 @@ def build_node_env(node_cmd: str) -> dict:
 
 
 def build_grafana_env() -> dict:
-    """Configure Grafana to work behind Jupyter's proxied subpath when available."""
+    """Configure Grafana to work behind Jupyter's proxied port forwarding."""
     env = os.environ.copy()
     public_base_url = get_public_base_url(env)
     grafana_public_url = build_public_service_url(public_base_url, 3000)
-    env["GF_SERVER_SERVE_FROM_SUB_PATH"] = "true"
+    # Jupyter's /proxy/<port>/ handler already rewrites requests to Grafana's
+    # root path, so enabling Grafana's own subpath mode can create redirect
+    # loops. We still set an external root URL so generated asset links point to
+    # the browser-visible proxy URL.
+    env["GF_SERVER_SERVE_FROM_SUB_PATH"] = "false"
+    env["GF_SERVER_ENFORCE_DOMAIN"] = "false"
     env["GF_SERVER_ROOT_URL"] = grafana_public_url
     return env
+
+
+def clean_env_value(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip().strip("`").strip("'").strip('"').strip()
+    return cleaned or None
 
 
 def get_public_base_url(env: dict | None = None) -> str | None:
     """Best-effort detection of the public Jupyter base URL for proxied services."""
     env = env or os.environ
 
-    explicit_base = env.get("SOWA_PUBLIC_BASE_URL") or env.get("JUPYTERHUB_PUBLIC_URL")
+    explicit_base = clean_env_value(env.get("SOWA_PUBLIC_BASE_URL")) or clean_env_value(env.get("JUPYTERHUB_PUBLIC_URL"))
     if explicit_base:
         return explicit_base.rstrip("/")
 
-    host = env.get("JUPYTERHUB_HOST")
-    prefix = env.get("JUPYTERHUB_SERVICE_PREFIX") or env.get("NB_PREFIX")
+    host = clean_env_value(env.get("JUPYTERHUB_HOST"))
+    prefix = clean_env_value(env.get("JUPYTERHUB_SERVICE_PREFIX")) or clean_env_value(env.get("NB_PREFIX"))
     if host and prefix:
         host = host.rstrip("/")
         if not host.startswith(("http://", "https://")):
@@ -296,8 +308,9 @@ def get_public_base_url(env: dict | None = None) -> str | None:
     # AMD notebook sessions expose a stable public host and a runtime-specific
     # session slug that matches the container hostname. This keeps the URL
     # dynamic across notebook restarts without hardcoding a full session URL.
-    public_host = env.get("SOWA_PUBLIC_HOST", "https://notebooks.amd.com").rstrip("/")
-    session_slug = env.get("HOSTNAME") or socket.gethostname()
+    public_host = clean_env_value(env.get("SOWA_PUBLIC_HOST")) or "https://notebooks.amd.com"
+    public_host = public_host.rstrip("/")
+    session_slug = clean_env_value(env.get("HOSTNAME")) or socket.gethostname()
     if session_slug:
         return f"{public_host}/{session_slug}"
 
