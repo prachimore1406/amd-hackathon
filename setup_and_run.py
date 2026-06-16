@@ -277,6 +277,12 @@ def build_grafana_env() -> dict:
     env["GF_SERVER_SERVE_FROM_SUB_PATH"] = "false"
     env["GF_SERVER_ENFORCE_DOMAIN"] = "false"
     env["GF_SERVER_ROOT_URL"] = grafana_public_url
+    # Avoid Grafana's login redirect flow inside the notebook proxy. For this
+    # demo stack, anonymous admin access is acceptable and keeps dashboards
+    # reachable even when /login does not proxy cleanly.
+    env["GF_AUTH_ANONYMOUS_ENABLED"] = "true"
+    env["GF_AUTH_ANONYMOUS_ORG_ROLE"] = "Admin"
+    env["GF_AUTH_DISABLE_LOGIN_FORM"] = "true"
     return env
 
 
