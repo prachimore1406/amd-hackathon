@@ -18,6 +18,10 @@ htmlcov/
 frontend/node_modules/
 frontend/dist/
 
+.sowa_runtime/
+.sowa_metrics/
+*.log
+
 .idea/
 .vscode/
 
