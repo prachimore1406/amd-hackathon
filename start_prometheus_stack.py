@@ -80,11 +80,10 @@ def main():
     prom_url = f"https://github.com/prometheus/prometheus/releases/download/v{PROM_VERSION}/prometheus-{PROM_VERSION}.{arch}.tar.gz"
     download_and_extract(prom_url, prom_dir)
 
-    # Create prometheus.yml
+    # Write prometheus.yml (ALWAYS OVERWRITE to ensure config is correct!)
     prom_config = prom_dir / "prometheus.yml"
-    if not prom_config.exists():
-        print("Creating prometheus.yml...")
-        prom_config.write_text("""
+    print("Writing prometheus.yml...")
+    prom_config.write_text("""
 global:
   scrape_interval: 15s
 scrape_configs:

@@ -33,9 +33,13 @@ if [ ! -f "$PROM_DIR/prometheus" ]; then
     wget -q "https://github.com/prometheus/prometheus/releases/download/v$PROM_VERSION/prometheus-$PROM_VERSION.linux-amd64.tar.gz"
     tar xzf "prometheus-$PROM_VERSION.linux-amd64.tar.gz"
     rm "prometheus-$PROM_VERSION.linux-amd64.tar.gz"
+else
+    echo "1. Prometheus already downloaded and verified"
+fi
 
-    # Create config file
-    cat > "$PROM_DIR/prometheus.yml" << 'EOF'
+# ALWAYS write the prometheus.yml config!
+echo "2. Writing prometheus.yml config..."
+cat > "$PROM_DIR/prometheus.yml" << 'EOF'
 global:
   scrape_interval: 15s
 scrape_configs:
@@ -47,12 +51,9 @@ scrape_configs:
       - targets: ['127.0.0.1:9100']
     metrics_path: /metrics
 EOF
-else
-    echo "1. Prometheus already downloaded and verified"
-fi
 
 echo ""
-echo "2. Starting Prometheus..."
+echo "3. Starting Prometheus..."
 cd "$PROM_DIR"
 # Kill existing Prometheus if running
 pkill -f "./prometheus --config.file=prometheus.yml" 2>/dev/null || true
@@ -63,7 +64,7 @@ echo "Prometheus started (PID: $PROM_PID) at http://localhost:9090"
 # Step 2: Download and start Node Exporter
 if [ ! -f "$NODE_EXPORTER_DIR/node_exporter" ]; then
     echo ""
-    echo "3. Downloading Node Exporter v$NODE_EXPORTER_VERSION..."
+    echo "4. Downloading Node Exporter v$NODE_EXPORTER_VERSION..."
     cd "$BASE_DIR"
     rm -rf "$NODE_EXPORTER_DIR"  # Clean up any broken directory
     rm -f node_exporter-$NODE_EXPORTER_VERSION.linux-amd64.tar.gz  # Remove potentially corrupted tar
@@ -71,11 +72,11 @@ if [ ! -f "$NODE_EXPORTER_DIR/node_exporter" ]; then
     tar xzf "node_exporter-$NODE_EXPORTER_VERSION.linux-amd64.tar.gz"
     rm "node_exporter-$NODE_EXPORTER_VERSION.linux-amd64.tar.gz"
 else
-    echo "3. Node Exporter already downloaded and verified"
+    echo "4. Node Exporter already downloaded and verified"
 fi
 
 echo ""
-echo "4. Starting Node Exporter..."
+echo "5. Starting Node Exporter..."
 cd "$NODE_EXPORTER_DIR"
 # Create textfile collector directory for SOWA metrics
 mkdir -p "textfile_collector"
