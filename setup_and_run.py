@@ -19,10 +19,7 @@ PROM_VERSION = "2.52.0"
 NODE_EXPORTER_VERSION = "1.8.2"
 GRAFANA_VERSION = "11.1.0"
 
-NODE_DIR = BASE_DIR / f"node-v{NODE_VERSION}-linux-x64"
-PROM_DIR = BASE_DIR / f"prometheus-{PROM_VERSION}.linux-amd64"
-NODE_EXPORTER_DIR = BASE_DIR / f"node_exporter-{NODE_EXPORTER_VERSION}.linux-amd64"
-GRAFANA_DIR = BASE_DIR / f"grafana-{GRAFANA_VERSION}.linux-amd64"
+# We'll find the actual directories after extraction, don't hardcode the full path yet
 LOG_DIR = BASE_DIR / "sowa_prom_logs"
 
 # Process trackers
@@ -47,8 +44,16 @@ def cleanup(signum, frame):
     sys.exit(0)
 
 
-def download_and_extract(url: str, dest_dir: Path, tar_name: str):
-    """Download and extract a tar.gz/tar.xz file"""
+def find_extracted_dir(base_name: str) -> Path:
+    """Find the extracted directory by looking for directories that start with the base name"""
+    for item in BASE_DIR.iterdir():
+        if item.is_dir() and item.name.startswith(base_name):
+            return item
+    return None
+
+
+def download_and_extract(url: str, base_name: str, tar_name: str):
+    """Download and extract a tar.gz/tar.xz file, and find the correct directory name"""
     tar_path = BASE_DIR / tar_name
     if not tar_path.exists():
         print(f"Downloading: {url}")
@@ -57,27 +62,25 @@ def download_and_extract(url: str, dest_dir: Path, tar_name: str):
         except Exception as e:
             print(f"Download failed: {e}")
             sys.exit(1)
-    # Check if extracted dir exists and has the binary we expect
-    expected_bin_suffix = {
-        "node": "bin/node",
-        "prometheus": "prometheus",
-        "node_exporter": "node_exporter",
-        "grafana": "bin/grafana-server"
-    }
-    expected_bin = None
-    for key, suffix in expected_bin_suffix.items():
-        if key in dest_dir.name:
-            expected_bin = dest_dir / suffix
-            break
-    if not dest_dir.exists() or not expected_bin.exists():
+    
+    # Check if we already have a valid extracted directory
+    extracted_dir = find_extracted_dir(base_name)
+    if not extracted_dir:
         print(f"Extracting: {tar_path.name}")
         try:
             mode = "r:xz" if tar_name.endswith(".xz") else "r:gz"
             with tarfile.open(tar_path, mode) as tar:
                 tar.extractall(path=BASE_DIR)
+            extracted_dir = find_extracted_dir(base_name)
+            if not extracted_dir:
+                print(f"Error: Could not find extracted directory for {base_name}")
+                sys.exit(1)
         except Exception as e:
             print(f"Extract failed: {e}")
             sys.exit(1)
+    
+    print(f"Found directory: {extracted_dir.name}")
+    return extracted_dir
 
 
 def get_node_npm_paths():
@@ -92,17 +95,21 @@ def get_node_npm_paths():
         pass
 
     # Check our local installation
-    node_cmd = NODE_DIR / "bin" / "node"
-    npm_cmd = NODE_DIR / "bin" / "npm"
-    if node_cmd.exists() and npm_cmd.exists():
-        print("Found local Node.js installation!")
-        return str(node_cmd), str(npm_cmd)
+    node_base_name = f"node-v{NODE_VERSION}"
+    node_dir = find_extracted_dir(node_base_name)
+    if node_dir:
+        node_cmd = node_dir / "bin" / "node"
+        npm_cmd = node_dir / "bin" / "npm"
+        if node_cmd.exists() and npm_cmd.exists():
+            print(f"Found local Node.js installation: {node_dir.name}")
+            return str(node_cmd), str(npm_cmd)
 
     # Install Node.js
     print("\nNode.js/npm not found! Installing now...")
     node_url = f"https://nodejs.org/dist/v{NODE_VERSION}/node-v{NODE_VERSION}-linux-x64.tar.xz"
-    download_and_extract(node_url, NODE_DIR, f"node-v{NODE_VERSION}-linux-x64.tar.xz")
-    print(f"Node.js installed to {NODE_DIR}!")
+    node_dir = download_and_extract(node_url, node_base_name, f"node-v{NODE_VERSION}-linux-x64.tar.xz")
+    node_cmd = node_dir / "bin" / "node"
+    npm_cmd = node_dir / "bin" / "npm"
     return str(node_cmd), str(npm_cmd)
 
 
@@ -136,10 +143,11 @@ def main():
 
     # 3. Set up Prometheus
     print("\n--- Setting up Prometheus ---")
+    prom_base_name = f"prometheus-{PROM_VERSION}"
     prom_url = f"https://github.com/prometheus/prometheus/releases/download/v{PROM_VERSION}/prometheus-{PROM_VERSION}.linux-amd64.tar.gz"
-    download_and_extract(prom_url, PROM_DIR, f"prometheus-{PROM_VERSION}.linux-amd64.tar.gz")
+    prom_dir = download_and_extract(prom_url, prom_base_name, f"prometheus-{PROM_VERSION}.linux-amd64.tar.gz")
     # Write prometheus config
-    prom_config = PROM_DIR / "prometheus.yml"
+    prom_config = prom_dir / "prometheus.yml"
     print(f"Writing Prometheus config to {prom_config}")
     yaml_content = (
         "global:\n"
@@ -157,16 +165,18 @@ def main():
 
     # 4. Set up Node Exporter
     print("\n--- Setting up Node Exporter ---")
+    ne_base_name = f"node_exporter-{NODE_EXPORTER_VERSION}"
     ne_url = f"https://github.com/prometheus/node_exporter/releases/download/v{NODE_EXPORTER_VERSION}/node_exporter-{NODE_EXPORTER_VERSION}.linux-amd64.tar.gz"
-    download_and_extract(ne_url, NODE_EXPORTER_DIR, f"node_exporter-{NODE_EXPORTER_VERSION}.linux-amd64.tar.gz")
-    # Create textfile collector dir
-    textfile_dir = NODE_EXPORTER_DIR / "textfile_collector"
+    ne_dir = download_and_extract(ne_url, ne_base_name, f"node_exporter-{NODE_EXPORTER_VERSION}.linux-amd64.tar.gz")
+    # Create textfile collector directory
+    textfile_dir = ne_dir / "textfile_collector"
     textfile_dir.mkdir(parents=True, exist_ok=True)
 
     # 5. Set up Grafana (MANDATORY!)
     print("\n--- Setting up Grafana ---")
+    grafana_base_name = f"grafana-{GRAFANA_VERSION}"
     grafana_url = f"https://dl.grafana.com/oss/release/grafana-{GRAFANA_VERSION}.linux-amd64.tar.gz"
-    download_and_extract(grafana_url, GRAFANA_DIR, f"grafana-{GRAFANA_VERSION}.linux-amd64.tar.gz")
+    grafana_dir = download_and_extract(grafana_url, grafana_base_name, f"grafana-{GRAFANA_VERSION}.linux-amd64.tar.gz")
 
     # 6. Build frontend
     print("\n--- Building React Frontend ---")
@@ -188,8 +198,8 @@ def main():
     prom_log = LOG_DIR / "prometheus.log"
     with open(prom_log, "w") as f:
         proc_prom = subprocess.Popen(
-            [str(PROM_DIR / "prometheus"), "--config.file", str(prom_config), "--web.listen-address", ":9090"],
-            cwd=str(PROM_DIR),
+            [str(prom_dir / "prometheus"), "--config.file", str(prom_config), "--web.listen-address", ":9090"],
+            cwd=str(prom_dir),
             stdout=f,
             stderr=f
         )
@@ -201,8 +211,8 @@ def main():
     ne_log = LOG_DIR / "node_exporter.log"
     with open(ne_log, "w") as f:
         proc_ne = subprocess.Popen(
-            [str(NODE_EXPORTER_DIR / "node_exporter"), f"--collector.textfile.directory={textfile_dir}"],
-            cwd=str(NODE_EXPORTER_DIR),
+            [str(ne_dir / "node_exporter"), f"--collector.textfile.directory={textfile_dir}"],
+            cwd=str(ne_dir),
             stdout=f,
             stderr=f
         )
@@ -214,8 +224,8 @@ def main():
     grafana_log = LOG_DIR / "grafana.log"
     with open(grafana_log, "w") as f:
         proc_grafana = subprocess.Popen(
-            [str(GRAFANA_DIR / "bin" / "grafana-server"), "web"],
-            cwd=str(GRAFANA_DIR),
+            [str(grafana_dir / "bin" / "grafana-server"), "web"],
+            cwd=str(grafana_dir),
             stdout=f,
             stderr=f
         )
