@@ -184,22 +184,24 @@ def get_node_npm_paths():
     except Exception:
         pass
 
-
-def build_node_env(node_cmd: str) -> dict:
-    """Ensure npm can find the matching node binary even when Node is locally installed."""
-    env = os.environ.copy()
-    node_bin_dir = str(Path(node_cmd).resolve().parent) if node_cmd != "node" else ""
-    if node_bin_dir:
-        env["PATH"] = f"{node_bin_dir}:{env.get('PATH', '')}"
-    return env
-
     # Check our local installation
     node_dir = find_extracted_dir("node-")
     if node_dir:
         node_cmd = node_dir / "bin" / "node"
         npm_cmd = node_dir / "bin" / "npm"
         if node_cmd.exists() and npm_cmd.exists():
-            print(f"Found local Node.js installation: {node_dir.name}")
+            node_ver = subprocess.check_output(
+                [str(node_cmd), "-v"],
+                text=True,
+                stderr=subprocess.STDOUT,
+            ).strip()
+            npm_ver = subprocess.check_output(
+                [str(npm_cmd), "-v"],
+                text=True,
+                stderr=subprocess.STDOUT,
+                env=build_node_env(str(node_cmd)),
+            ).strip()
+            print(f"Found local Node.js installation: {node_dir.name} ({node_ver}, npm {npm_ver})")
             return str(node_cmd), str(npm_cmd)
 
     if not IS_LINUX:
@@ -214,7 +216,28 @@ def build_node_env(node_cmd: str) -> dict:
     node_dir = download_and_extract(node_url, "node-", f"node-v{NODE_VERSION}-linux-x64.tar.xz")
     node_cmd = node_dir / "bin" / "node"
     npm_cmd = node_dir / "bin" / "npm"
+    node_ver = subprocess.check_output(
+        [str(node_cmd), "-v"],
+        text=True,
+        stderr=subprocess.STDOUT,
+    ).strip()
+    npm_ver = subprocess.check_output(
+        [str(npm_cmd), "-v"],
+        text=True,
+        stderr=subprocess.STDOUT,
+        env=build_node_env(str(node_cmd)),
+    ).strip()
+    print(f"Installed local Node.js: {node_ver}, npm: {npm_ver}")
     return str(node_cmd), str(npm_cmd)
+
+
+def build_node_env(node_cmd: str) -> dict:
+    """Ensure npm can find the matching node binary even when Node is locally installed."""
+    env = os.environ.copy()
+    node_bin_dir = str(Path(node_cmd).resolve().parent) if node_cmd != "node" else ""
+    if node_bin_dir:
+        env["PATH"] = f"{node_bin_dir}{os.pathsep}{env.get('PATH', '')}"
+    return env
 
 
 def install_python_deps():
