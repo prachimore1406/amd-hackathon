@@ -146,8 +146,8 @@ EOF
 nohup ./prometheus --config.file=prometheus.yml --web.listen-address=:9090 > prometheus.log 2>&1 &
 echo "Prometheus started at http://localhost:9090"
 
-# Go back home
-cd ~
+# Go back to workspace
+cd /workspace/shared
 ```
 
 #### Step 2: Download and Start Node Exporter
@@ -161,8 +161,8 @@ cd node_exporter-1.8.2.linux-amd64
 nohup ./node_exporter > node_exporter.log 2>&1 &
 echo "Node Exporter started at http://localhost:9100"
 
-# Go back home
-cd ~
+# Go back to workspace
+cd /workspace/shared
 ```
 
 ### Step 3: Access the Prometheus UI

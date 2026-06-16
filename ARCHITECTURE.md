@@ -8,30 +8,30 @@ SOWA (Self-Optimizing Workload Agent) is a GenAI-powered Kubernetes workload pla
 ```mermaid
 flowchart TB
     subgraph "User Interface Layer"
-        UI[Gradio Web UI]
+        UI["Gradio Web UI"]
     end
 
     subgraph "GenAI Orchestration Layer"
-        LG[LangGraph State Machine]
-        SA[Simulator Agent]
-        DA[DevOps Agent]
+        LG["LangGraph State Machine"]
+        SA["Simulator Agent"]
+        DA["DevOps Agent"]
     end
 
     subgraph "Telemetry & Context Layer"
-        LC[Local Collectors<br/>(psutil, rocm-smi)]
-        PC[Prometheus Integration<br/>(Node Exporter, Textfile Collector)]
-        WC[Workload Controller]
+        LC["Local Collectors\n(psutil, rocm-smi)"]
+        PC["Prometheus Integration\n(Node Exporter, Textfile Collector)"]
+        WC["Workload Controller"]
     end
 
     subgraph "Model & Inferencing Layer"
-        LLM[Qwen2.5-7B-Instruct]
-        HF[HuggingFace Transformers]
-        LC_PT[LangChain + LangChain-HuggingFace]
+        LC_PT["LangChain + LangChain-HuggingFace"]
+        HF["HuggingFace Transformers Pipeline"]
+        LLM["Qwen2.5-7B-Instruct"]
     end
 
     subgraph "Infrastructure Layer"
-        AMD[AMD MI350X / ROCm]
-        K8S[Kubernetes (Simulated)]
+        AMD["AMD MI350X / ROCm"]
+        K8S["Kubernetes (Simulated)"]
     end
 
     UI -->|Run Turn / Trigger Spike| LG
@@ -40,12 +40,12 @@ flowchart TB
     SA -->|Read Telemetry| PC
     LG -->|Make Placement Decision| DA
     DA -->|Inference Request| LC_PT
-    LC_PT -->|Text Generation| HF
-    HF -->|Run on GPU| LLM
+    LC_PT -->|Invoke| HF
+    HF -->|Runs| LLM
     LLM -->|Deployed on| AMD
     DA -->|Generate Manifest| K8S
     DA -->|Update UI| UI
-    WC -->|Write Metric| PC
+    WC -->|Write Custom Metric| PC
     WC -->|Run Local Workload| LC
 ```
 
@@ -75,6 +75,7 @@ SOWA uses a **two-agent system** orchestrated by LangGraph:
 
 ### 4.2 Retrieval-Augmented Generation (RAG) / Context Engineering
 - **Telemetry as Context**: We inject real-time cluster state, local CPU/GPU/memory usage, and recent events directly into the LLM prompt
+- **Prometheus Integration**: In Prometheus mode, we use PromQL to query metrics and custom textfile metrics for GPU spikes
 - **No fine-tuning needed**: All decisions are context-driven
 
 ### 4.3 Structured Prompting
@@ -112,7 +113,10 @@ SOWA uses a **two-agent system** orchestrated by LangGraph:
 ### 5.2 Telemetry System
 Supports two modes:
 1. **Local Mode (default)**: Uses `psutil` (CPU/memory) and `rocm-smi` (GPU)
-2. **Prometheus Mode**: Queries Prometheus for metrics, uses custom textfile metrics for GPU spikes
+2. **Prometheus Mode**: 
+   - Queries Prometheus via PromQL for node CPU/memory
+   - Uses custom textfile collector metrics (`sowa_gpu_spike_active`, `sowa_gpu_spike_recent`) for GPU contention events
+   - Telemetry source and event text clearly indicate Prometheus usage
 
 ### 5.3 Workload Controller
 Manages local demo workloads:

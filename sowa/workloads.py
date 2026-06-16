@@ -11,7 +11,7 @@ _LOCK = threading.Lock()
 _LAST_GPU_SPIKE_AT = 0.0
 _GPU_SPIKE_WINDOW_SEC = 20
 # Textfile collector directory for node_exporter
-TEXTFILE_DIR = Path.home() / "node_exporter-1.8.2.linux-amd64" / "textfile_collector"
+TEXTFILE_DIR = Path("/workspace/shared") / "node_exporter-1.8.2.linux-amd64" / "textfile_collector"
 TEXTFILE_DIR.mkdir(parents=True, exist_ok=True)
 TEXTFILE_PATH = TEXTFILE_DIR / "sowa_gpu_spike.prom"
 

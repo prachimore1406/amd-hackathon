@@ -8,9 +8,10 @@ set -e  # Exit on error
 # Configuration
 PROM_VERSION="2.52.0"
 NODE_EXPORTER_VERSION="1.8.2"
-PROM_DIR="$HOME/prometheus-$PROM_VERSION.linux-amd64"
-NODE_EXPORTER_DIR="$HOME/node_exporter-$NODE_EXPORTER_VERSION.linux-amd64"
-LOG_DIR="$HOME/sowa_prom_logs"
+BASE_DIR="/workspace/shared"
+PROM_DIR="$BASE_DIR/prometheus-$PROM_VERSION.linux-amd64"
+NODE_EXPORTER_DIR="$BASE_DIR/node_exporter-$NODE_EXPORTER_VERSION.linux-amd64"
+LOG_DIR="$BASE_DIR/sowa_prom_logs"
 
 # Create log directory
 mkdir -p "$LOG_DIR"
@@ -23,7 +24,8 @@ echo "================================================"
 if [ ! -d "$PROM_DIR" ]; then
     echo ""
     echo "1. Downloading Prometheus v$PROM_VERSION..."
-    cd "$HOME"
+    mkdir -p "$BASE_DIR"
+    cd "$BASE_DIR"
     wget -q "https://github.com/prometheus/prometheus/releases/download/v$PROM_VERSION/prometheus-$PROM_VERSION.linux-amd64.tar.gz"
     tar xzf "prometheus-$PROM_VERSION.linux-amd64.tar.gz"
     rm "prometheus-$PROM_VERSION.linux-amd64.tar.gz"
@@ -55,7 +57,7 @@ echo "Prometheus started (PID: $PROM_PID) at http://localhost:9090"
 if [ ! -d "$NODE_EXPORTER_DIR" ]; then
     echo ""
     echo "3. Downloading Node Exporter v$NODE_EXPORTER_VERSION..."
-    cd "$HOME"
+    cd "$BASE_DIR"
     wget -q "https://github.com/prometheus/node_exporter/releases/download/v$NODE_EXPORTER_VERSION/node_exporter-$NODE_EXPORTER_VERSION.linux-amd64.tar.gz"
     tar xzf "node_exporter-$NODE_EXPORTER_VERSION.linux-amd64.tar.gz"
     rm "node_exporter-$NODE_EXPORTER_VERSION.linux-amd64.tar.gz"

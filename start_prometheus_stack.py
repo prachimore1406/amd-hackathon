@@ -15,8 +15,8 @@ from pathlib import Path
 # Configuration
 PROM_VERSION = "2.52.0"
 NODE_EXPORTER_VERSION = "1.8.2"
-HOME_DIR = Path.home()
-LOG_DIR = HOME_DIR / "sowa_prom_logs"
+BASE_DIR = Path("/workspace/shared")
+LOG_DIR = BASE_DIR / "sowa_prom_logs"
 
 # Determine OS/Arch
 system = platform.system()
@@ -46,7 +46,7 @@ def download_and_extract(url: str, dest_dir: Path):
         print(f"Extracting: {tar_path.name}")
         try:
             with tarfile.open(tar_path, "r:gz") as tar:
-                tar.extractall(path=HOME_DIR)
+                tar.extractall(path=BASE_DIR)
         except Exception as e:
             print(f"Extract failed: {e}")
             sys.exit(1)
@@ -72,7 +72,7 @@ def main():
     LOG_DIR.mkdir(parents=True, exist_ok=True)
 
     # Prometheus setup
-    prom_dir = HOME_DIR / f"prometheus-{PROM_VERSION}.{arch}"
+    prom_dir = BASE_DIR / f"prometheus-{PROM_VERSION}.{arch}"
     prom_url = f"https://github.com/prometheus/prometheus/releases/download/v{PROM_VERSION}/prometheus-{PROM_VERSION}.{arch}.tar.gz"
     download_and_extract(prom_url, prom_dir)
 
@@ -107,7 +107,7 @@ scrape_configs:
     print(f"Prometheus started (PID: {prom_proc.pid}) at http://localhost:9090")
 
     # Node Exporter setup
-    node_dir = HOME_DIR / f"node_exporter-{NODE_EXPORTER_VERSION}.{arch}"
+    node_dir = BASE_DIR / f"node_exporter-{NODE_EXPORTER_VERSION}.{arch}"
     node_url = f"https://github.com/prometheus/node_exporter/releases/download/v{NODE_EXPORTER_VERSION}/node_exporter-{NODE_EXPORTER_VERSION}.{arch}.tar.gz"
     download_and_extract(node_url, node_dir)
 
@@ -140,6 +140,7 @@ scrape_configs:
     print("  USE_PROMETHEUS = True")
     print()
     print(f"Logs are in: {LOG_DIR}")
+    print(f"Base Directory: {BASE_DIR}")
     print("To stop the stack later (Linux):")
     print("  pkill -f './prometheus' && pkill -f './node_exporter'")
     print("================================================")
