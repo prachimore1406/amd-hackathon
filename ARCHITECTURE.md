@@ -8,7 +8,11 @@ SOWA (Self-Optimizing Workload Agent) is a GenAI-powered Kubernetes workload pla
 ```mermaid
 flowchart TB
     subgraph "User Interface Layer"
-        UI["Gradio Web UI"]
+        UI["React Web UI (Vite)"]
+    end
+
+    subgraph "Backend API Layer"
+        API["FastAPI (uvicorn)"]
     end
 
     subgraph "GenAI Orchestration Layer"
@@ -34,7 +38,8 @@ flowchart TB
         K8S["Kubernetes (Simulated)"]
     end
 
-    UI -->|Run Turn / Trigger Spike| LG
+    UI -->|HTTP Request| API
+    API -->|Invoke| LG
     LG -->|Get Cluster Snapshot| SA
     SA -->|Read Telemetry| LC
     SA -->|Read Telemetry| PC
@@ -44,7 +49,8 @@ flowchart TB
     HF -->|Runs| LLM
     LLM -->|Deployed on| AMD
     DA -->|Generate Manifest| K8S
-    DA -->|Update UI| UI
+    DA -->|Return State| API
+    API -->|JSON Response| UI
     WC -->|Write Custom Metric| PC
     WC -->|Run Local Workload| LC
 ```
@@ -53,12 +59,13 @@ flowchart TB
 ## 3. Technology Stack
 | Layer               | Technologies                                                                 |
 |---------------------|-----------------------------------------------------------------------------|
-| **UI**              | Gradio                                                                      |
+| **UI**              | React (Vite)                                                                |
+| **Backend API**     | FastAPI, uvicorn, pydantic                                                 |
 | **Orchestration**   | LangGraph, LangChain                                                         |
 | **Inferencing**     | HuggingFace Transformers, Accelerate, PyTorch, Qwen2.5-7B-Instruct          |
 | **Telemetry**       | psutil, rocm-smi, Prometheus, Node Exporter (Textfile Collector), requests  |
 | **Hardware**        | AMD EPYC, AMD Instinct MI350X, ROCm                                         |
-| **Language**        | Python 3.x                                                                  |
+| **Language**        | Python 3.x (Backend), JavaScript/TypeScript (Frontend)                            |
 
 
 ## 4. GenAI Fundamentals & Principles Used

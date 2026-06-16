@@ -4,6 +4,8 @@ accelerate
 langchain
 langchain-huggingface
 langgraph
-gradio
 psutil
 requests
+fastapi
+uvicorn
+pydantic

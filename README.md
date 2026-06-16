@@ -35,6 +35,7 @@ SOWA focuses on three demo goals:
 - `Performance impact panel`: compares the baseline hardware choice with the current SOWA placement
 - `Valid Kubernetes output`: generates `apps/v1` deployment YAML with selectors and labels
 - `Real GPU spike button`: runs a short, bounded GPU burst on the local notebook and marks a recent accelerator contention event
+- Professional React UI
 
 ## Architecture
 
@@ -183,6 +184,25 @@ To use Prometheus as your telemetry source, edit `sowa/metrics.py` and change:
 USE_PROMETHEUS = True
 ```
 
+## Prometheus Metrics Used
+
+When `USE_PROMETHEUS = True` in `sowa/metrics.py`, SOWA reads the following metrics to make placement decisions:
+
+### Standard Metrics (from Node Exporter)
+- `node_cpu_seconds_total{mode="idle"}`: Used to calculate total CPU utilization
+- `node_memory_MemTotal_bytes`: Total memory on the node
+- `node_memory_MemAvailable_bytes`: Available memory on the node
+- `node_memory_Active_bytes`: Currently active memory
+
+### Custom Metrics (from SOWA textfile collector)
+- `sowa_gpu_spike_active`: 1 if a GPU spike is currently active, 0 otherwise
+- `sowa_gpu_spike_recent`: Time in seconds since the last GPU spike
+
+### How Metrics Are Used
+- **CPU Utilization**: Calculated as `100 - (avg(irate(node_cpu_seconds_total{mode="idle"}[1m])) * 100)`
+- **Memory Utilization**: Calculated as `((node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes) * 100`
+- **GPU Contention**: Uses `sowa_gpu_spike_active` and `sowa_gpu_spike_recent` to avoid placing new ML workloads on a contended GPU node
+
 Check that ROCm-backed PyTorch sees the GPU:
 
 ```bash
@@ -197,14 +217,31 @@ which rocm-smi || command -v rocm-smi
 
 ## Run The App
 
-Start the Gradio app:
+This is the only UI option: professional React UI with FastAPI backend!
 
+1. **Install Python dependencies first**:
 ```bash
-python app.py
+pip install -r requirements.txt
 ```
 
-On first launch the app downloads `Qwen/Qwen2.5-7B-Instruct`, so startup may take a while.
-When the server is ready, Gradio prints a local URL and may also print a public share URL.
+2. **Start the FastAPI backend server**:
+```bash
+python api.py
+```
+This runs on http://localhost:8000
+
+3. **In a new terminal, start the React frontend**:
+```bash
+cd frontend
+npm install
+npm run dev
+```
+This runs on http://localhost:5173
+
+Open http://localhost:5173 in your browser! The frontend proxies API calls to the FastAPI backend automatically!
+
+---
+On first launch the app downloads `Qwen/Qwen2.5-7B-Instruct`, so backend startup may take a while.
 
 ## Demo Flow
 
