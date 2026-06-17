@@ -153,3 +153,114 @@ Demo flow overview/ what the jury should notice:
 7. Run another simulation turn and show that the placement decision adapts to the changed context
 8. Optionally run the current workload locally to create additional notebook pressure and demonstrate dynamic response
 9. If Grafana is available, show the corresponding telemetry dashboards as supporting observability
+
+
+Hi, this is SOWA,
+our Self-Optimizing Workload Agent
+for explainable workload placement on AMD infrastructure.
+
+The goal of SOWA
+is to help platform teams
+place workloads more intelligently
+across CPU nodes,
+GPU nodes,
+and general-purpose infrastructure.
+
+Instead of relying only on static scheduling rules,
+SOWA combines live telemetry,
+workload type,
+and AI-driven reasoning
+to recommend the best target
+and generate a Kubernetes deployment artifact.
+
+On this screen,
+we can see the current workload,
+the placement decision,
+the risk level,
+and the telemetry source.
+
+First,
+I’m refreshing telemetry
+so the system is working
+from the latest local state.
+
+SOWA reads local CPU and memory usage,
+and when available,
+AMD GPU telemetry through ROCm tools.
+
+It combines that
+with a simulated cluster snapshot,
+so we can demonstrate
+multi-node scheduling behavior
+in a compact environment.
+
+Now I’m running a scheduling turn.
+
+At this point,
+SOWA evaluates the workload,
+checks current resource conditions,
+and selects a placement target.
+
+It also produces
+human-readable reasoning,
+a performance summary,
+and a Kubernetes manifest
+that maps the workload
+to the selected AMD hardware profile.
+
+This makes the output useful
+not only for explainability,
+but also for operational handoff
+and deployment planning.
+
+Next,
+I’m going to simulate
+a GPU contention event.
+
+This allows us to show
+how SOWA responds
+when runtime conditions change.
+
+After refreshing telemetry,
+we can now see
+that the system has
+new accelerator context.
+
+I’ll run another scheduling turn
+so we can observe
+how placement adapts
+under the updated conditions.
+
+This demonstrates
+the core value of SOWA.
+
+The scheduler is adaptive,
+explainable,
+and driven by live infrastructure signals
+rather than fixed assumptions.
+
+To complement the SOWA interface,
+we also provide
+Grafana-based observability.
+
+Grafana shows
+the metrics pipeline behind the demo,
+while the SOWA UI focuses on
+decision-making,
+reasoning,
+and deployment output.
+
+Together,
+these views show
+both what is happening in the system
+and why the scheduling decision was made.
+
+In summary,
+SOWA combines
+AMD-aware workload placement,
+real-time telemetry,
+explainable AI reasoning,
+and Kubernetes-ready artifacts
+into one operator workflow.
+
+Thank you for watching.
