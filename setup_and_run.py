@@ -515,7 +515,7 @@ def main():
     print(f"Writing Prometheus config to {prom_config}")
     yaml_content = (
         "global:\n"
-        "  scrape_interval: 15s\n"
+        "  scrape_interval: 5s\n"
         "scrape_configs:\n"
         "  - job_name: 'prometheus'\n"
         "    static_configs:\n"

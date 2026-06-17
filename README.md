@@ -133,7 +133,7 @@ cd prometheus-2.52.0.linux-amd64
 # Create prometheus.yml
 cat > prometheus.yml << 'EOF'
 global:
-  scrape_interval: 15s
+  scrape_interval: 5s
 scrape_configs:
   - job_name: 'prometheus'
     static_configs:
@@ -330,4 +330,3 @@ Use this order during the hackathon demo:
 - The generated Kubernetes manifest is a placement artifact only. The app does not apply it to a live cluster.
 - If `rocm-smi` is unavailable, the demo still runs, but GPU telemetry becomes less detailed.
 - The first model download may be the slowest part of the setup because persistent storage is limited.
-
