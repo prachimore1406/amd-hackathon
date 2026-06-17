@@ -55,6 +55,50 @@ def _baseline_decision(workload_request: str) -> str:
     return WORKLOAD_BASELINES.get(_workload_type(workload_request), "General-VM")
 
 
+def _candidate_decisions_for_workload(workload_request: str, accelerator_event: str) -> list[str]:
+    baseline = _baseline_decision(workload_request)
+    ordered = [baseline, "AMD-EPYC-CPU", "AMD-Instinct-GPU", "General-VM", LOCAL_NODE_NAME]
+    unique_choices = []
+    for decision in ordered:
+        if decision not in unique_choices:
+            unique_choices.append(decision)
+
+    accelerator_text = accelerator_event.lower()
+    if "ml training" in _workload_type(workload_request) and (
+        "active" in accelerator_text or "recent" in accelerator_text
+    ):
+        unique_choices = [choice for choice in unique_choices if choice != LOCAL_NODE_NAME]
+    return unique_choices
+
+
+def _deterministic_decision(workload_request: str, node_loads: dict[str, int], accelerator_event: str) -> str:
+    candidates = _candidate_decisions_for_workload(workload_request, accelerator_event)
+    safe_candidates = [choice for choice in candidates if node_loads.get(choice, 100) <= 80]
+    if safe_candidates:
+        return min(safe_candidates, key=lambda choice: (node_loads.get(choice, 100), candidates.index(choice)))
+    return min(candidates, key=lambda choice: (node_loads.get(choice, 100), candidates.index(choice)))
+
+
+def _fallback_response(state: MultiAgentState, live_snapshot: dict, reason: str, raw_response: str = "") -> dict:
+    accelerator_event = live_snapshot.get("accelerator_event", "")
+    node_loads = live_snapshot.get("node_loads", state.get("node_loads", {}))
+    decision = _deterministic_decision(state["current_workload"], node_loads, accelerator_event)
+    baseline = _baseline_decision(state["current_workload"])
+    response_reasoning = (
+        f"Used the deterministic scheduler because the LLM did not return valid structured output. "
+        f"Baseline target for this workload is {baseline}; selected {decision} based on current node load and safety rules."
+    )
+    if raw_response:
+        print(f"[SOWA Agent] Falling back to deterministic scheduler. Raw response preview: {raw_response[:1200]}", flush=True)
+    return {
+        "reasoning": response_reasoning,
+        "decision": decision,
+        "risk_level": "Medium",
+        "performance_explanation": reason,
+        "tool_trace_summary": reason,
+    }
+
+
 def _performance_summary(state: MultiAgentState, decision: str) -> tuple[str, str]:
     baseline = _baseline_decision(state["current_workload"])
     node_loads = state.get("node_loads", {})
@@ -108,53 +152,24 @@ spec:
 """
 
 
-def _parse_structured_response(response: str) -> dict:
-    response_text = response if isinstance(response, str) else str(response)
-
+def _parse_json_payload(response_text: str) -> dict | None:
     fenced_match = re.search(r"```(?:json)?\s*([\s\S]*?)```", response_text, re.IGNORECASE)
     if fenced_match:
         try:
-            payload = json.loads(fenced_match.group(1).strip())
-            return {
-                "reasoning": str(payload.get("reasoning", "No reasoning provided.")),
-                "decision": _normalize_decision(str(payload.get("decision", "General-VM"))),
-                "risk_level": str(payload.get("risk_level", "Medium")).title(),
-                "performance_explanation": str(payload.get("performance_explanation", "")),
-                "tool_trace_summary": str(payload.get("tool_trace_summary", "None")),
-            }
+            return json.loads(fenced_match.group(1).strip())
         except json.JSONDecodeError:
             pass
 
-    # Try candidate JSON objects from the end of the response first so we can
-    # tolerate conversational preambles/suffixes around the structured payload.
     matches = list(re.finditer(r"\{.*?\}", response_text, re.DOTALL))
-    if not matches:
-        return {
-            "reasoning": response_text[:1200] if response_text else "Could not parse LLM response.",
-            "decision": _normalize_decision(response_text),
-            "risk_level": "Medium",
-            "performance_explanation": "Fallback decision used.",
-            "tool_trace_summary": "Structured output missing. Raw response preserved in reasoning.",
-        }
-
-    payload = None
     for match in reversed(matches):
         try:
-            payload = json.loads(match.group(0))
-            break
+            return json.loads(match.group(0))
         except json.JSONDecodeError:
             continue
+    return None
 
-    if payload is None:
-        print(f"[SOWA Agent] Failed to parse model JSON response: {response_text[:1200]}", flush=True)
-        return {
-            "reasoning": response_text[:1200] if response_text else "Invalid JSON format in LLM response.",
-            "decision": _normalize_decision(response_text),
-            "risk_level": "Medium",
-            "performance_explanation": "Fallback decision used.",
-            "tool_trace_summary": "Invalid JSON response. Raw response preserved in reasoning.",
-        }
 
+def _coerce_structured_payload(payload: dict) -> dict:
     return {
         "reasoning": str(payload.get("reasoning", "No reasoning provided.")),
         "decision": _normalize_decision(str(payload.get("decision", "General-VM"))),
@@ -162,6 +177,15 @@ def _parse_structured_response(response: str) -> dict:
         "performance_explanation": str(payload.get("performance_explanation", "")),
         "tool_trace_summary": str(payload.get("tool_trace_summary", "None")),
     }
+
+
+def _parse_structured_response(response: str) -> dict | None:
+    response_text = response if isinstance(response, str) else str(response)
+    payload = _parse_json_payload(response_text)
+    if payload is None:
+        print(f"[SOWA Agent] Failed to parse model JSON response: {response_text[:1200]}", flush=True)
+        return None
+    return _coerce_structured_payload(payload)
 
 
 def simulator_agent(state: MultiAgentState) -> MultiAgentState:
@@ -199,16 +223,43 @@ def devops_agent(state: MultiAgentState) -> MultiAgentState:
     Rules:
     - ML Training prefers AMD-Instinct-GPU.
     - Web Serving prefers AMD-EPYC-CPU.
+    - Data Processing prefers General-VM.
     - If a physical node load is above 80%, avoid it and choose another node.
     - Avoid Local-Notebook-Node for new ML work when the recent GPU event reports an active or recent spike.
     - decision must be exactly one of: AMD-EPYC-CPU, AMD-Instinct-GPU, General-VM, Local-Notebook-Node.
 
     Return exactly one JSON object with keys:
     reasoning, decision, risk_level, performance_explanation, tool_trace_summary
+    Do not wrap the JSON in markdown.
+    Do not repeat the prompt.
+    Do not add any text before or after the JSON.
     """.strip()
     response = llm.invoke(prompt)
     print(f"[SOWA Agent] Raw model response preview: {str(response)[:1200]}", flush=True)
     parsed = _parse_structured_response(response)
+    if parsed is None:
+        repair_prompt = f"""
+        Convert the following model output into exactly one valid JSON object.
+        Keep only these keys: reasoning, decision, risk_level, performance_explanation, tool_trace_summary
+        decision must be exactly one of: AMD-EPYC-CPU, AMD-Instinct-GPU, General-VM, Local-Notebook-Node.
+        If the output does not contain a valid decision, use {_baseline_decision(state["current_workload"])}.
+        Return JSON only with no markdown and no extra text.
+
+        Original output:
+        {str(response)[:2000]}
+        """.strip()
+        repair_response = llm.invoke(repair_prompt)
+        print(f"[SOWA Agent] Repair model response preview: {str(repair_response)[:1200]}", flush=True)
+        parsed = _parse_structured_response(repair_response)
+        if parsed and parsed["tool_trace_summary"] == "None":
+            parsed["tool_trace_summary"] = "Structured output recovered with a JSON repair pass."
+        if parsed is None:
+            parsed = _fallback_response(
+                state,
+                live_snapshot,
+                reason="Invalid JSON response. Used deterministic fallback scheduler.",
+                raw_response=str(response),
+            )
     decision = parsed["decision"]
     workload_name = state["current_workload"].split("|")[0].replace("Name:", "").strip().lower().replace(" ", "-")
     _, performance_summary = _performance_summary({**state, **live_snapshot}, decision)

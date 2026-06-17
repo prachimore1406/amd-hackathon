@@ -65,6 +65,7 @@ def _build_llm():
             max_new_tokens=250,
             temperature=0.2,
             torch_dtype=torch_dtype,
+            return_full_text=False,
         )
         _log("Model pipeline initialized successfully.")
         return HuggingFacePipeline(pipeline=pipe)
