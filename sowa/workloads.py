@@ -19,6 +19,8 @@ _GPU_UTILIZATION_PERCENT = 0.0
 _GPU_UTILIZATION_AVAILABLE = 0
 _GPU_SPIKE_WINDOW_SEC = 20
 _GPU_ACTIVITY_WINDOW_SEC = 45
+_GPU_ACTIVITY_THRESHOLD_PERCENT = 5.0
+_GPU_SPIKE_THRESHOLD_PERCENT = 70.0
 
 
 def _default_textfile_dir() -> Path:
@@ -48,9 +50,16 @@ def _is_gpu_workload(name: str) -> bool:
 def _update_gpu_metrics():
     """Write GPU spike and general GPU activity status to the Prometheus textfile collector."""
     with _LOCK:
-        active_spike = any("[GPU-SPIKE]" in job for job in _ACTIVE_WORKLOADS)
+        explicit_spike = any("[GPU-SPIKE]" in job for job in _ACTIVE_WORKLOADS)
         active_gpu_work = any(_is_gpu_workload(job) for job in _ACTIVE_WORKLOADS)
-        active_gpu_activity = active_gpu_work or bool(_ACTIVE_GPU_ACTIVITIES)
+        gpu_utilization_active = (
+            _GPU_UTILIZATION_AVAILABLE == 1 and _GPU_UTILIZATION_PERCENT >= _GPU_ACTIVITY_THRESHOLD_PERCENT
+        )
+        gpu_utilization_spike = (
+            _GPU_UTILIZATION_AVAILABLE == 1 and _GPU_UTILIZATION_PERCENT >= _GPU_SPIKE_THRESHOLD_PERCENT
+        )
+        active_spike = explicit_spike or gpu_utilization_spike
+        active_gpu_activity = active_gpu_work or bool(_ACTIVE_GPU_ACTIVITIES) or gpu_utilization_active
         seconds_since_spike = time.time() - _LAST_GPU_SPIKE_AT
         seconds_since_activity = time.time() - _LAST_GPU_ACTIVITY_AT
         gpu_utilization_percent = _GPU_UTILIZATION_PERCENT
@@ -148,22 +157,35 @@ def end_gpu_activity(name: str) -> None:
 
 
 def set_gpu_utilization(percent: float, available: bool) -> None:
-    global _GPU_UTILIZATION_PERCENT, _GPU_UTILIZATION_AVAILABLE
+    global _GPU_UTILIZATION_PERCENT, _GPU_UTILIZATION_AVAILABLE, _LAST_GPU_SPIKE_AT
     with _LOCK:
         _GPU_UTILIZATION_PERCENT = max(0.0, min(100.0, float(percent)))
         _GPU_UTILIZATION_AVAILABLE = 1 if available else 0
+        if _GPU_UTILIZATION_AVAILABLE == 1:
+            if _GPU_UTILIZATION_PERCENT >= _GPU_ACTIVITY_THRESHOLD_PERCENT:
+                _mark_gpu_activity_event_locked()
+            if _GPU_UTILIZATION_PERCENT >= _GPU_SPIKE_THRESHOLD_PERCENT:
+                _LAST_GPU_SPIKE_AT = time.time()
     _update_gpu_metrics()
 
 
 def get_recent_accelerator_event_text() -> str:
     with _LOCK:
-        active_spike = any("[GPU-SPIKE]" in job for job in _ACTIVE_WORKLOADS)
+        explicit_spike = any("[GPU-SPIKE]" in job for job in _ACTIVE_WORKLOADS)
         seconds_since_spike = time.time() - _LAST_GPU_SPIKE_AT
+        gpu_utilization_available = _GPU_UTILIZATION_AVAILABLE == 1
+        gpu_utilization_percent = _GPU_UTILIZATION_PERCENT
+        gpu_utilization_spike = gpu_utilization_available and gpu_utilization_percent >= _GPU_SPIKE_THRESHOLD_PERCENT
 
-    if active_spike:
+    if explicit_spike:
         return "Real GPU spike is active on the local notebook node."
+    if gpu_utilization_spike:
+        return (
+            f"GPU contention is active on the local notebook node "
+            f"({gpu_utilization_percent:.1f}% utilization)."
+        )
     if 0 < seconds_since_spike <= _GPU_SPIKE_WINDOW_SEC:
-        return f"Recent real GPU spike detected on the local notebook node ({int(seconds_since_spike)}s ago)."
+        return f"Recent GPU contention detected on the local notebook node ({int(seconds_since_spike)}s ago)."
     return "No recent local accelerator contention event."
 
 

@@ -431,13 +431,28 @@
             "mode": "thresholds"
           },
           "decimals": 1,
-          "mappings": [],
+          "mappings": [
+            {
+              "options": {
+                "-1": {
+                  "color": "gray",
+                  "index": 0,
+                  "text": "N/A"
+                }
+              },
+              "type": "value"
+            }
+          ],
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "gray",
                 "value": null
+              },
+              {
+                "color": "green",
+                "value": 0
               },
               {
                 "color": "yellow",
@@ -480,7 +495,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sowa_gpu_utilization_percent",
+          "expr": "(sowa_gpu_utilization_percent * sowa_gpu_utilization_available) + ((sowa_gpu_utilization_available - 1) * 1)",
           "legendFormat": "GPU Utilization",
           "range": true,
           "refId": "A"

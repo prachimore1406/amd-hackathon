@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """FastAPI backend for the SOWA demo."""
 
+import threading
+import time
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -29,6 +31,8 @@ app.add_middleware(
 
 workflow_graph = agent_app
 current_state: dict = {}
+_telemetry_poller_stop = threading.Event()
+_telemetry_poller_thread: threading.Thread | None = None
 
 
 class SOWAState(BaseModel):
@@ -81,6 +85,28 @@ def refresh_snapshot() -> None:
     )
 
 
+def telemetry_poller() -> None:
+    """Continuously refresh exported telemetry so Prometheus/Grafana can observe short-lived events."""
+    while not _telemetry_poller_stop.is_set():
+        try:
+            snapshot = get_cluster_snapshot(
+                current_state.get("last_decision", "None"),
+                advance_simulation=False,
+            )
+            if current_state:
+                current_state.update(
+                    {
+                        "cluster_status_text": snapshot["cluster_status_text"],
+                        "local_telemetry_text": snapshot["local_telemetry_text"],
+                        "telemetry_source": snapshot["telemetry_source"],
+                        "node_loads": snapshot["node_loads"],
+                    }
+                )
+        except Exception as exc:
+            print(f"[SOWA API] Telemetry poller refresh failed: {exc}", flush=True)
+        _telemetry_poller_stop.wait(2.0)
+
+
 def serialize_state(state: dict) -> SOWAState:
     """Map internal workflow state to the React UI response shape."""
     return SOWAState(
@@ -101,8 +127,16 @@ def serialize_state(state: dict) -> SOWAState:
 
 @app.on_event("startup")
 async def startup_event():
-    global current_state
+    global current_state, _telemetry_poller_thread
     current_state = initial_state_dict()
+    _telemetry_poller_stop.clear()
+    _telemetry_poller_thread = threading.Thread(target=telemetry_poller, daemon=True)
+    _telemetry_poller_thread.start()
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    _telemetry_poller_stop.set()
 
 
 @app.get("/api/health")
