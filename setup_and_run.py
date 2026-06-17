@@ -503,6 +503,11 @@ def main():
         )
     register_process(proc_api, "FastAPI Backend", api_log)
     print(f"Backend started (PID {proc_api.pid}) at {sowa_public_url}")
+    print(f"  Backend log: {api_log}")
+    print("  Note: the LLM loads lazily on the first simulation turn; model logs will appear in backend.log.")
+    time.sleep(1)
+    if api_log.exists() and api_log.stat().st_size > 0:
+        print_log_tail("FastAPI Backend startup", api_log, tail_lines=20)
 
     print("\n" + "="*70)
     print("🎉 ALL SERVICES STARTED SUCCESSFULLY! 🎉")

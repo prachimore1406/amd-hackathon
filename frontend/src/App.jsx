@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import axios from 'axios'
 
 const normalizedBaseUrl = new URL(
@@ -6,6 +6,32 @@ const normalizedBaseUrl = new URL(
   window.location.origin,
 )
 const API_BASE = new URL('./api', normalizedBaseUrl).pathname.replace(/\/$/, '')
+
+const shellStyle = {
+  minHeight: '100vh',
+  background: 'radial-gradient(circle at top, rgba(59, 130, 246, 0.18), transparent 22%), linear-gradient(180deg, #081126 0%, #0b1428 55%, #0f172a 100%)',
+}
+
+const pageStyle = {
+  maxWidth: '1440px',
+  margin: '0 auto',
+  padding: '32px 20px 48px',
+}
+
+const panelStyle = {
+  background: 'linear-gradient(180deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.98))',
+  border: '1px solid rgba(148, 163, 184, 0.14)',
+  borderRadius: '20px',
+  boxShadow: '0 24px 80px rgba(2, 6, 23, 0.45)',
+}
+
+const sectionTitleStyle = {
+  fontSize: '0.78rem',
+  fontWeight: '700',
+  letterSpacing: '0.16em',
+  textTransform: 'uppercase',
+  color: '#8ea8d5',
+}
 
 const App = () => {
   const [state, setState] = useState(null)
@@ -84,119 +110,230 @@ const App = () => {
     }
   }
 
+  const statusCards = useMemo(
+    () => [
+      {
+        title: 'Current Workload',
+        icon: '📦',
+        value: state?.current_workload || 'Waiting for first run',
+        tone: '#f8fafc',
+        detail: 'Active request under evaluation by the placement workflow.',
+      },
+      {
+        title: 'Placement Decision',
+        icon: '🎯',
+        value: state?.last_decision || 'Pending',
+        tone: '#22c55e',
+        detail: 'Latest target selected by the scheduling agent.',
+      },
+      {
+        title: 'Risk Level',
+        icon: '⚠️',
+        value: state?.risk_level || 'Low',
+        tone: riskColor(state?.risk_level),
+        detail: state?.risk_details || 'Overall placement risk inferred from current telemetry.',
+      },
+      {
+        title: 'Telemetry Source',
+        icon: '🛰️',
+        value: state?.telemetry_source || 'Initializing',
+        tone: '#60a5fa',
+        detail: 'Live source currently feeding the hybrid cluster snapshot.',
+      },
+    ],
+    [state],
+  )
+
   return (
-    <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '24px' }}>
-      <header style={{ marginBottom: '40px', textAlign: 'center' }}>
-        <h1 style={{ fontSize: '3rem', fontWeight: '800', background: 'linear-gradient(90deg, #3b82f6, #8b5cf6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', marginBottom: '8px' }}>
-          SOWA
-        </h1>
-        <p style={{ fontSize: '1.25rem', color: '#94a3b8' }}>
-          Self-Optimizing Workload Agent
-        </p>
-      </header>
-
-      <div style={{ display: 'flex', gap: '12px', marginBottom: '32px', flexWrap: 'wrap' }}>
-        <Button onClick={handleRunTurn} variant="primary" loading={loading} icon="▶">
-          Run Simulation Turn
-        </Button>
-        <Button onClick={handleRefresh} variant="secondary" loading={loading}>
-          Refresh Telemetry
-        </Button>
-        <Button onClick={handleTriggerSpike} variant="accent" loading={loading} icon="⚡">
-          Trigger GPU Spike
-        </Button>
-        <Button onClick={handleRunWorkload} variant="secondary" loading={loading} disabled={!state?.current_workload}>
-          Run Workload Locally
-        </Button>
-        <Button onClick={handleReset} variant="danger" loading={loading} icon="↺">
-          Reset
-        </Button>
-      </div>
-
-      {state && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px' }}>
-          <Card title="📦 Current Workload">
-            <div style={{ fontSize: '1.5rem', fontWeight: '700', color: '#f8fafc' }}>
-              {state.current_workload || 'Waiting for first run...'}
+    <div style={shellStyle}>
+      <div style={pageStyle}>
+        <div style={{ ...panelStyle, padding: '32px', marginBottom: '24px' }}>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: '24px',
+              flexWrap: 'wrap',
+              alignItems: 'flex-end',
+            }}
+          >
+            <div style={{ maxWidth: '720px' }}>
+              <div style={{ ...sectionTitleStyle, marginBottom: '12px' }}>AMD Intelligent Placement Console</div>
+              <h1
+                style={{
+                  fontSize: 'clamp(2.5rem, 7vw, 4.5rem)',
+                  lineHeight: 1,
+                  fontWeight: '800',
+                  letterSpacing: '-0.04em',
+                  background: 'linear-gradient(90deg, #7dd3fc, #6366f1 45%, #8b5cf6 100%)',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                  marginBottom: '12px',
+                }}
+              >
+                SOWA
+              </h1>
+              <p style={{ color: '#c7d2fe', fontSize: '1.125rem', lineHeight: 1.7, maxWidth: '700px' }}>
+                Self-Optimizing Workload Agent for explainable AMD infrastructure scheduling, hybrid telemetry,
+                and deployable workload placement recommendations.
+              </p>
             </div>
-          </Card>
-
-          <Card title="🎯 Placement Decision">
-            <div style={{ fontSize: '1.5rem', fontWeight: '700', color: '#22c55e' }}>
-              {state.last_decision || '---'}
+            <div
+              style={{
+                minWidth: '240px',
+                padding: '18px 20px',
+                borderRadius: '18px',
+                background: 'rgba(15, 23, 42, 0.7)',
+                border: '1px solid rgba(96, 165, 250, 0.2)',
+              }}
+            >
+              <div style={{ ...sectionTitleStyle, marginBottom: '10px' }}>Session Status</div>
+              <div style={{ fontSize: '1.6rem', fontWeight: '700', color: '#f8fafc', marginBottom: '4px' }}>
+                {loading ? 'Running' : 'Ready'}
+              </div>
+              <div style={{ color: '#94a3b8', lineHeight: 1.6 }}>
+                {loading
+                  ? 'Processing the current request and refreshing telemetry.'
+                  : 'Use the control bar below to refresh metrics or run the next turn.'}
+              </div>
             </div>
-          </Card>
-
-          <Card title="⚠️ Risk Level">
-            <div style={{ 
-              fontSize: '1.5rem', fontWeight: '700', 
-              color: state.risk_level === 'High' ? '#ef4444' : state.risk_level === 'Medium' ? '#eab308' : '#22c55e' 
-            }}>
-              {state.risk_level || 'Low'}
-            </div>
-            {state.risk_details && <div style={{ marginTop: '8px', color: '#94a3b8', fontSize: '0.875rem' }}>{state.risk_details}</div>}
-          </Card>
-
-          <Card title="📊 Local Telemetry">
-            <pre style={{ 
-              background: '#0f172a', padding: '16px', borderRadius: '8px', 
-              overflow: 'auto', maxHeight: '300px', fontSize: '0.875rem', color: '#cbd5e1',
-              whiteSpace: 'pre-wrap', wordBreak: 'break-all'
-            }}>
-              {state.local_telemetry}
-            </pre>
-          </Card>
-
-          <Card title="🤖 DevOps Reasoning" colSpan="2">
-            <div style={{ 
-              background: '#0f172a', padding: '16px', borderRadius: '8px', 
-              color: '#e0f2fe', fontSize: '0.95rem', lineHeight: '1.6'
-            }}>
-              {state.devops_reasoning || '---'}
-            </div>
-          </Card>
-
-          <Card title="📈 Performance Summary">
-            <div style={{ 
-              background: '#0f172a', padding: '16px', borderRadius: '8px', 
-              color: '#dcfce7', fontSize: '0.95rem', lineHeight: '1.6'
-            }}>
-              {state.performance_summary || '---'}
-            </div>
-          </Card>
-
-          <Card title="📋 Kubernetes Manifest">
-            <pre style={{ 
-              background: '#0f172a', padding: '16px', borderRadius: '8px', 
-              overflow: 'auto', maxHeight: '400px', fontSize: '0.875rem', color: '#f8fafc'
-            }}>
-              {state.k8s_manifest || '---'}
-            </pre>
-          </Card>
-
-          <Card title="🔍 Tool Trace">
-            <pre style={{ 
-              background: '#0f172a', padding: '16px', borderRadius: '8px', 
-              overflow: 'auto', maxHeight: '300px', fontSize: '0.875rem', color: '#94a3b8'
-            }}>
-              {state.tool_trace || '---'}
-            </pre>
-          </Card>
+          </div>
         </div>
-      )}
+
+        <div style={{ ...panelStyle, padding: '20px', marginBottom: '24px' }}>
+          <div style={{ ...sectionTitleStyle, marginBottom: '16px' }}>Control Center</div>
+          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+            <Button onClick={handleRunTurn} variant="primary" loading={loading} icon="▶">
+              Run Simulation Turn
+            </Button>
+            <Button onClick={handleRefresh} variant="secondary" loading={loading} icon="↻">
+              Refresh Telemetry
+            </Button>
+            <Button onClick={handleTriggerSpike} variant="accent" loading={loading} icon="⚡">
+              Trigger GPU Spike
+            </Button>
+            <Button onClick={handleRunWorkload} variant="secondary" loading={loading} disabled={!state?.current_workload} icon="⏵">
+              Run Workload Locally
+            </Button>
+            <Button onClick={handleReset} variant="danger" loading={loading} icon="↺">
+              Reset
+            </Button>
+          </div>
+        </div>
+
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+            gap: '18px',
+            marginBottom: '24px',
+          }}
+        >
+          {statusCards.map((card) => (
+            <SummaryCard key={card.title} {...card} />
+          ))}
+        </div>
+
+        {state && (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))',
+              gap: '24px',
+              alignItems: 'start',
+            }}
+          >
+            <div style={{ display: 'grid', gap: '24px' }}>
+              <Card
+                eyebrow="Decision Engine"
+                title="DevOps Reasoning"
+                subtitle="Human-readable explanation of the current placement choice."
+              >
+                <ScrollPanel tone="#e0f2fe" minHeight="220px">
+                  {state.devops_reasoning || 'No decision has been produced yet.'}
+                </ScrollPanel>
+              </Card>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '24px' }}>
+                <Card
+                  eyebrow="Impact"
+                  title="Performance Summary"
+                  subtitle="Expected trade-off versus the baseline placement strategy."
+                >
+                  <ScrollPanel tone="#dcfce7" minHeight="220px">
+                    {state.performance_summary || 'Performance guidance will appear after the first turn.'}
+                  </ScrollPanel>
+                </Card>
+                <Card
+                  eyebrow="Visibility"
+                  title="Tool Trace"
+                  subtitle="Internal tool calls used to reach the current recommendation."
+                >
+                  <CodePanel minHeight="220px">{state.tool_trace || 'No tool activity recorded yet.'}</CodePanel>
+                </Card>
+              </div>
+
+              <Card
+                eyebrow="Deployment Artifact"
+                title="Kubernetes Manifest"
+                subtitle="Generated deployment YAML targeting the selected AMD hardware profile."
+              >
+                <CodePanel minHeight="420px">{state.k8s_manifest || 'Manifest output will appear after the first decision.'}</CodePanel>
+              </Card>
+            </div>
+
+            <div style={{ display: 'grid', gap: '24px' }}>
+              <Card
+                eyebrow="Live Metrics"
+                title="Local Telemetry"
+                subtitle="Current notebook utilization and recent accelerator activity."
+              >
+                <CodePanel minHeight="360px">{state.local_telemetry || 'Telemetry will load shortly.'}</CodePanel>
+              </Card>
+
+              <Card
+                eyebrow="Cluster Snapshot"
+                title="Simulated Cluster Status"
+                subtitle="Hybrid view combining the local node with simulated remote infrastructure."
+              >
+                <ScrollPanel tone="#dbeafe" minHeight="200px">
+                  {state.simulated_cluster_snapshot || 'Cluster snapshot unavailable.'}
+                </ScrollPanel>
+              </Card>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
 
 const Button = ({ children, onClick, variant = 'secondary', loading = false, icon = '', disabled = false }) => {
   const variants = {
-    primary: { bg: '#3b82f6', bgHover: '#2563eb', border: 'none' },
-    secondary: { bg: '#334155', bgHover: '#475569', border: '1px solid #475569' },
-    accent: { bg: '#8b5cf6', bgHover: '#7c3aed', border: 'none' },
-    danger: { bg: '#ef4444', bgHover: '#dc2626', border: 'none' }
+    primary: {
+      bg: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+      bgHover: 'linear-gradient(135deg, #4f8ef7, #2a6ae6)',
+      border: '1px solid rgba(96, 165, 250, 0.35)',
+    },
+    secondary: {
+      bg: 'rgba(51, 65, 85, 0.78)',
+      bgHover: 'rgba(71, 85, 105, 0.92)',
+      border: '1px solid rgba(148, 163, 184, 0.18)',
+    },
+    accent: {
+      bg: 'linear-gradient(135deg, #8b5cf6, #7c3aed)',
+      bgHover: 'linear-gradient(135deg, #9b6cff, #8245ee)',
+      border: '1px solid rgba(167, 139, 250, 0.35)',
+    },
+    danger: {
+      bg: 'linear-gradient(135deg, #ef4444, #dc2626)',
+      bgHover: 'linear-gradient(135deg, #f35a5a, #e13737)',
+      border: '1px solid rgba(248, 113, 113, 0.35)',
+    },
   }
 
   const [isHover, setIsHover] = useState(false)
+  const palette = variants[variant]
 
   return (
     <button
@@ -205,48 +342,115 @@ const Button = ({ children, onClick, variant = 'secondary', loading = false, ico
       onMouseLeave={() => setIsHover(false)}
       disabled={loading || disabled}
       style={{
-        padding: '12px 24px',
-        fontSize: '1rem',
-        fontWeight: '600',
-        borderRadius: '8px',
-        border: variants[variant].border,
-        backgroundColor: isHover ? variants[variant].bgHover : variants[variant].bg,
+        padding: '13px 18px',
+        minHeight: '50px',
+        fontSize: '0.96rem',
+        fontWeight: '700',
+        letterSpacing: '0.01em',
+        borderRadius: '14px',
+        border: palette.border,
+        background: isHover ? palette.bgHover : palette.bg,
         color: '#f8fafc',
-        cursor: (loading || disabled) ? 'not-allowed' : 'pointer',
+        cursor: loading || disabled ? 'not-allowed' : 'pointer',
         display: 'inline-flex',
         alignItems: 'center',
-        gap: '8px',
-        transition: 'all 0.2s ease'
+        justifyContent: 'center',
+        gap: '10px',
+        transition: 'transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease',
+        boxShadow: isHover && !(loading || disabled) ? '0 14px 30px rgba(15, 23, 42, 0.28)' : 'none',
+        transform: isHover && !(loading || disabled) ? 'translateY(-1px)' : 'none',
       }}
     >
-      {loading ? '⏳' : icon}
-      {children}
+      <span style={{ opacity: 0.95 }}>{loading ? '⏳' : icon}</span>
+      <span>{children}</span>
     </button>
   )
 }
 
-const Card = ({ title, children, colSpan = 1 }) => {
-  return (
-    <div style={{ 
-      background: '#1e293b', 
-      padding: '24px', 
-      borderRadius: '12px', 
-      border: '1px solid #334155',
-      gridColumn: colSpan > 1 ? `span ${colSpan}` : 'auto'
-    }}>
-      <h3 style={{ 
-        fontSize: '1rem', 
-        fontWeight: '700', 
-        textTransform: 'uppercase', 
-        letterSpacing: '0.05em',
-        color: '#94a3b8',
-        marginBottom: '16px'
-      }}>
-        {title}
-      </h3>
-      {children}
+const SummaryCard = ({ title, icon, value, detail, tone }) => (
+  <div
+    style={{
+      ...panelStyle,
+      padding: '22px',
+      minHeight: '180px',
+      display: 'flex',
+      flexDirection: 'column',
+      justifyContent: 'space-between',
+    }}
+  >
+    <div>
+      <div style={{ ...sectionTitleStyle, display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '18px' }}>
+        <span>{icon}</span>
+        <span>{title}</span>
+      </div>
+      <div
+        style={{
+          color: tone,
+          fontSize: 'clamp(1.2rem, 2.6vw, 1.8rem)',
+          lineHeight: 1.3,
+          fontWeight: '800',
+          wordBreak: 'break-word',
+        }}
+      >
+        {value}
+      </div>
     </div>
-  )
+    <div style={{ color: '#94a3b8', lineHeight: 1.6, marginTop: '18px', fontSize: '0.92rem' }}>{detail}</div>
+  </div>
+)
+
+const Card = ({ eyebrow, title, subtitle, children }) => (
+  <div style={{ ...panelStyle, padding: '24px' }}>
+    {eyebrow && <div style={{ ...sectionTitleStyle, marginBottom: '10px' }}>{eyebrow}</div>}
+    <div style={{ fontSize: '1.35rem', fontWeight: '750', color: '#f8fafc', marginBottom: '8px' }}>{title}</div>
+    {subtitle && <div style={{ color: '#94a3b8', lineHeight: 1.6, marginBottom: '18px' }}>{subtitle}</div>}
+    {children}
+  </div>
+)
+
+const ScrollPanel = ({ children, tone, minHeight }) => (
+  <div
+    style={{
+      background: 'rgba(8, 15, 30, 0.72)',
+      border: '1px solid rgba(96, 165, 250, 0.08)',
+      borderRadius: '16px',
+      padding: '18px',
+      minHeight,
+      whiteSpace: 'pre-wrap',
+      color: tone,
+      lineHeight: 1.75,
+    }}
+  >
+    {children}
+  </div>
+)
+
+const CodePanel = ({ children, minHeight }) => (
+  <pre
+    style={{
+      background: '#08101f',
+      border: '1px solid rgba(96, 165, 250, 0.08)',
+      borderRadius: '16px',
+      padding: '18px',
+      overflow: 'auto',
+      minHeight,
+      maxHeight: '540px',
+      fontSize: '0.875rem',
+      lineHeight: 1.7,
+      color: '#dbeafe',
+      whiteSpace: 'pre-wrap',
+      wordBreak: 'break-word',
+      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace',
+    }}
+  >
+    {children}
+  </pre>
+)
+
+function riskColor(riskLevel) {
+  if (riskLevel === 'High') return '#ef4444'
+  if (riskLevel === 'Medium') return '#f59e0b'
+  return '#22c55e'
 }
 
 export default App

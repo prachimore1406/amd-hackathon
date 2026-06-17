@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 import json
+import traceback
+
+
+def _log(message: str) -> None:
+    print(f"[SOWA LLM] {message}", flush=True)
 
 
 class FallbackLLM:
@@ -39,24 +44,34 @@ def _build_llm():
         import torch
         from langchain_huggingface import HuggingFacePipeline
         from transformers import pipeline
-    except ImportError:
+    except ImportError as exc:
+        _log(f"Optional LLM dependencies unavailable, using fallback scheduler: {exc}")
         return FallbackLLM()
 
-    print("Initializing Qwen2.5-7B on AMD MI 350 X (ROCm)...")
-    model_id = "Qwen/Qwen2.5-7B-Instruct"
-    use_accelerator = torch.cuda.is_available()
-    device = 0 if use_accelerator else -1
-    torch_dtype = torch.float16 if use_accelerator else torch.float32
+    try:
+        model_id = "Qwen/Qwen2.5-7B-Instruct"
+        use_accelerator = torch.cuda.is_available()
+        device = 0 if use_accelerator else -1
+        torch_dtype = torch.float16 if use_accelerator else torch.float32
+        _log(
+            f"Initializing {model_id} "
+            f"(accelerator={'yes' if use_accelerator else 'no'}, device={device})"
+        )
 
-    pipe = pipeline(
-        "text-generation",
-        model=model_id,
-        device=device,
-        max_new_tokens=250,
-        temperature=0.2,
-        torch_dtype=torch_dtype,
-    )
-    return HuggingFacePipeline(pipeline=pipe)
+        pipe = pipeline(
+            "text-generation",
+            model=model_id,
+            device=device,
+            max_new_tokens=250,
+            temperature=0.2,
+            torch_dtype=torch_dtype,
+        )
+        _log("Model pipeline initialized successfully.")
+        return HuggingFacePipeline(pipeline=pipe)
+    except Exception as exc:
+        _log(f"Model initialization failed, falling back to rule-based scheduler: {exc}")
+        _log(traceback.format_exc())
+        return FallbackLLM()
 
 
 class LazyLLM:
@@ -67,8 +82,11 @@ class LazyLLM:
 
     def invoke(self, prompt_input):
         if self._client is None:
+            _log("First inference requested; loading model client now.")
             self._client = _build_llm()
-        return self._client.invoke(prompt_input)
+        response = self._client.invoke(prompt_input)
+        _log(f"Inference completed using {self._client.__class__.__name__}.")
+        return response
 
 
 llm = LazyLLM()

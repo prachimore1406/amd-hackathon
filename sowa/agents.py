@@ -109,16 +109,32 @@ spec:
 
 
 def _parse_structured_response(response: str) -> dict:
+    response_text = response if isinstance(response, str) else str(response)
+
+    fenced_match = re.search(r"```(?:json)?\s*([\s\S]*?)```", response_text, re.IGNORECASE)
+    if fenced_match:
+        try:
+            payload = json.loads(fenced_match.group(1).strip())
+            return {
+                "reasoning": str(payload.get("reasoning", "No reasoning provided.")),
+                "decision": _normalize_decision(str(payload.get("decision", "General-VM"))),
+                "risk_level": str(payload.get("risk_level", "Medium")).title(),
+                "performance_explanation": str(payload.get("performance_explanation", "")),
+                "tool_trace_summary": str(payload.get("tool_trace_summary", "None")),
+            }
+        except json.JSONDecodeError:
+            pass
+
     # Try candidate JSON objects from the end of the response first so we can
     # tolerate conversational preambles/suffixes around the structured payload.
-    matches = list(re.finditer(r"\{.*?\}", response, re.DOTALL))
+    matches = list(re.finditer(r"\{.*?\}", response_text, re.DOTALL))
     if not matches:
         return {
-            "reasoning": "Could not parse LLM response.",
-            "decision": "General-VM",
+            "reasoning": response_text[:1200] if response_text else "Could not parse LLM response.",
+            "decision": _normalize_decision(response_text),
             "risk_level": "Medium",
             "performance_explanation": "Fallback decision used.",
-            "tool_trace_summary": "Structured output missing.",
+            "tool_trace_summary": "Structured output missing. Raw response preserved in reasoning.",
         }
 
     payload = None
@@ -130,12 +146,13 @@ def _parse_structured_response(response: str) -> dict:
             continue
 
     if payload is None:
+        print(f"[SOWA Agent] Failed to parse model JSON response: {response_text[:1200]}", flush=True)
         return {
-            "reasoning": "Invalid JSON format in LLM response.",
-            "decision": "General-VM",
+            "reasoning": response_text[:1200] if response_text else "Invalid JSON format in LLM response.",
+            "decision": _normalize_decision(response_text),
             "risk_level": "Medium",
             "performance_explanation": "Fallback decision used.",
-            "tool_trace_summary": "Invalid JSON response.",
+            "tool_trace_summary": "Invalid JSON response. Raw response preserved in reasoning.",
         }
 
     return {
@@ -190,6 +207,7 @@ def devops_agent(state: MultiAgentState) -> MultiAgentState:
     reasoning, decision, risk_level, performance_explanation, tool_trace_summary
     """.strip()
     response = llm.invoke(prompt)
+    print(f"[SOWA Agent] Raw model response preview: {str(response)[:1200]}", flush=True)
     parsed = _parse_structured_response(response)
     decision = parsed["decision"]
     workload_name = state["current_workload"].split("|")[0].replace("Name:", "").strip().lower().replace(" ", "-")
