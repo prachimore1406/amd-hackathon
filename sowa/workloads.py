@@ -11,9 +11,14 @@ except ImportError:  # pragma: no cover - handled at runtime when ML deps are ab
 
 
 _ACTIVE_WORKLOADS: List[str] = []
+_ACTIVE_GPU_ACTIVITIES: List[str] = []
 _LOCK = threading.Lock()
 _LAST_GPU_SPIKE_AT = 0.0
+_LAST_GPU_ACTIVITY_AT = 0.0
+_GPU_UTILIZATION_PERCENT = 0.0
+_GPU_UTILIZATION_AVAILABLE = 0
 _GPU_SPIKE_WINDOW_SEC = 20
+_GPU_ACTIVITY_WINDOW_SEC = 45
 
 
 def _default_textfile_dir() -> Path:
@@ -36,12 +41,22 @@ TEXTFILE_DIR.mkdir(parents=True, exist_ok=True)
 TEXTFILE_PATH = TEXTFILE_DIR / "sowa_gpu_spike.prom"
 
 
-def _update_gpu_spike_metric():
-    """Write GPU spike status to prometheus textfile collector"""
+def _is_gpu_workload(name: str) -> bool:
+    return "[GPU]" in name or "[GPU-SPIKE]" in name
+
+
+def _update_gpu_metrics():
+    """Write GPU spike and general GPU activity status to the Prometheus textfile collector."""
     with _LOCK:
         active_spike = any("[GPU-SPIKE]" in job for job in _ACTIVE_WORKLOADS)
+        active_gpu_work = any(_is_gpu_workload(job) for job in _ACTIVE_WORKLOADS)
+        active_gpu_activity = active_gpu_work or bool(_ACTIVE_GPU_ACTIVITIES)
         seconds_since_spike = time.time() - _LAST_GPU_SPIKE_AT
+        seconds_since_activity = time.time() - _LAST_GPU_ACTIVITY_AT
+        gpu_utilization_percent = _GPU_UTILIZATION_PERCENT
+        gpu_utilization_available = _GPU_UTILIZATION_AVAILABLE
         recent_spike = 0 < seconds_since_spike <= _GPU_SPIKE_WINDOW_SEC
+        recent_activity = 0 < seconds_since_activity <= _GPU_ACTIVITY_WINDOW_SEC
 
     # Write metric in prometheus format
     with open(TEXTFILE_PATH, "w") as f:
@@ -51,19 +66,41 @@ def _update_gpu_spike_metric():
         f.write(f"# HELP sowa_gpu_spike_recent Seconds since last SOWA demo GPU spike (0 if > {_GPU_SPIKE_WINDOW_SEC}s)\n")
         f.write(f"# TYPE sowa_gpu_spike_recent gauge\n")
         f.write(f"sowa_gpu_spike_recent {seconds_since_spike if recent_spike else 0}\n")
+        f.write("# HELP sowa_gpu_activity_active Indicates if general GPU activity is currently active\n")
+        f.write("# TYPE sowa_gpu_activity_active gauge\n")
+        f.write(f"sowa_gpu_activity_active {1 if active_gpu_activity else 0}\n")
+        f.write(f"# HELP sowa_gpu_activity_recent Seconds since last observed GPU activity (0 if > {_GPU_ACTIVITY_WINDOW_SEC}s)\n")
+        f.write("# TYPE sowa_gpu_activity_recent gauge\n")
+        f.write(f"sowa_gpu_activity_recent {seconds_since_activity if recent_activity else 0}\n")
+        f.write("# HELP sowa_gpu_activity_count Number of active SOWA GPU activities currently tracked\n")
+        f.write("# TYPE sowa_gpu_activity_count gauge\n")
+        f.write(f"sowa_gpu_activity_count {int(active_gpu_work) + len(_ACTIVE_GPU_ACTIVITIES)}\n")
+        f.write("# HELP sowa_gpu_utilization_percent Current GPU utilization percentage from rocm-smi\n")
+        f.write("# TYPE sowa_gpu_utilization_percent gauge\n")
+        f.write(f"sowa_gpu_utilization_percent {gpu_utilization_percent:.2f}\n")
+        f.write("# HELP sowa_gpu_utilization_available Indicates whether GPU utilization telemetry is currently available\n")
+        f.write("# TYPE sowa_gpu_utilization_available gauge\n")
+        f.write(f"sowa_gpu_utilization_available {gpu_utilization_available}\n")
+
+
+_update_gpu_metrics()
 
 
 def _add_job(name: str) -> None:
     with _LOCK:
         _ACTIVE_WORKLOADS.append(name)
-    _update_gpu_spike_metric()
+        if _is_gpu_workload(name):
+            _mark_gpu_activity_event_locked()
+    _update_gpu_metrics()
 
 
 def _remove_job(name: str) -> None:
     with _LOCK:
         if name in _ACTIVE_WORKLOADS:
             _ACTIVE_WORKLOADS.remove(name)
-    _update_gpu_spike_metric()
+        if _is_gpu_workload(name):
+            _mark_gpu_activity_event_locked()
+    _update_gpu_metrics()
 
 
 def get_active_workloads_text() -> str:
@@ -80,7 +117,42 @@ def _mark_gpu_spike_event() -> None:
     global _LAST_GPU_SPIKE_AT
     with _LOCK:
         _LAST_GPU_SPIKE_AT = time.time()
-    _update_gpu_spike_metric()
+    _update_gpu_metrics()
+
+
+def _mark_gpu_activity_event_locked() -> None:
+    global _LAST_GPU_ACTIVITY_AT
+    _LAST_GPU_ACTIVITY_AT = time.time()
+
+
+def mark_gpu_activity_event() -> None:
+    with _LOCK:
+        _mark_gpu_activity_event_locked()
+    _update_gpu_metrics()
+
+
+def begin_gpu_activity(name: str) -> None:
+    with _LOCK:
+        if name not in _ACTIVE_GPU_ACTIVITIES:
+            _ACTIVE_GPU_ACTIVITIES.append(name)
+        _mark_gpu_activity_event_locked()
+    _update_gpu_metrics()
+
+
+def end_gpu_activity(name: str) -> None:
+    with _LOCK:
+        if name in _ACTIVE_GPU_ACTIVITIES:
+            _ACTIVE_GPU_ACTIVITIES.remove(name)
+        _mark_gpu_activity_event_locked()
+    _update_gpu_metrics()
+
+
+def set_gpu_utilization(percent: float, available: bool) -> None:
+    global _GPU_UTILIZATION_PERCENT, _GPU_UTILIZATION_AVAILABLE
+    with _LOCK:
+        _GPU_UTILIZATION_PERCENT = max(0.0, min(100.0, float(percent)))
+        _GPU_UTILIZATION_AVAILABLE = 1 if available else 0
+    _update_gpu_metrics()
 
 
 def get_recent_accelerator_event_text() -> str:
@@ -135,6 +207,7 @@ def _gpu_spike_job(duration_sec: int = 4, matrix_size: int = 4096, warmup_iterat
             time.sleep(1)
             return
 
+        _mark_gpu_spike_event()
         device = torch.device("cuda")
         dtype = torch.float16
         a = torch.randn((matrix_size, matrix_size), device=device, dtype=dtype)
@@ -150,7 +223,6 @@ def _gpu_spike_job(duration_sec: int = 4, matrix_size: int = 4096, warmup_iterat
             b = torch.tanh(a)
 
         torch.cuda.synchronize()
-        _mark_gpu_spike_event()
     finally:
         _remove_job(label)
 
@@ -193,6 +265,11 @@ def launch_workload_for_request(workload_request: str) -> str:
 
 
 def trigger_real_gpu_spike() -> str:
+    if torch is None:
+        return "PyTorch is not installed in this environment, so the real GPU spike could not start."
+    if not torch.cuda.is_available():
+        return "CUDA/ROCm device is not available in this session, so the real GPU spike could not start."
+
     with _LOCK:
         spike_running = any("[GPU-SPIKE]" in job for job in _ACTIVE_WORKLOADS)
 
@@ -201,8 +278,4 @@ def trigger_real_gpu_spike() -> str:
 
     thread = threading.Thread(target=_gpu_spike_job, daemon=True)
     thread.start()
-    if torch is not None and torch.cuda.is_available():
-        return "Started a bounded real GPU spike on the notebook GPU for demo purposes. Refresh telemetry in a few seconds to observe the contention signal."
-    if torch is None:
-        return "PyTorch is not installed in this environment, so the real GPU spike could not start."
-    return "CUDA/ROCm device is not available in this session, so the real GPU spike could not start."
+    return "Started a bounded real GPU spike on the notebook GPU for demo purposes. Refresh telemetry in a few seconds to observe the contention signal."

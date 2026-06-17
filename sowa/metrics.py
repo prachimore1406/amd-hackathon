@@ -1,7 +1,9 @@
+import json
 import random
+import re
 import subprocess
 import time
-from typing import Dict
+from typing import Dict, Optional
 
 import psutil
 
@@ -15,6 +17,7 @@ from sowa.workloads import (
     get_active_workload_count,
     get_active_workloads_text,
     get_recent_accelerator_event_text,
+    set_gpu_utilization,
 )
 
 # Prometheus configuration
@@ -51,6 +54,71 @@ def _clamp(value: int) -> int:
     return max(0, min(100, value))
 
 
+def _parse_percent_value(value) -> Optional[float]:
+    if isinstance(value, (int, float)):
+        if 0 <= float(value) <= 100:
+            return float(value)
+        return None
+    if isinstance(value, str):
+        match = re.search(r"(-?\d+(?:\.\d+)?)", value)
+        if match:
+            parsed = float(match.group(1))
+            if 0 <= parsed <= 100:
+                return parsed
+    return None
+
+
+def _extract_rocm_gpu_utilization(payload) -> Optional[float]:
+    preferred_keys = (
+        "gpu use",
+        "gpu_use",
+        "gpu utilization",
+        "gpu_utilization",
+        "gfx activity",
+        "gfx_activity",
+    )
+
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            key_lower = str(key).lower()
+            if "mem" not in key_lower and any(token in key_lower for token in preferred_keys):
+                parsed = _parse_percent_value(value)
+                if parsed is not None:
+                    return parsed
+            parsed = _extract_rocm_gpu_utilization(value)
+            if parsed is not None:
+                return parsed
+    elif isinstance(payload, list):
+        for item in payload:
+            parsed = _extract_rocm_gpu_utilization(item)
+            if parsed is not None:
+                return parsed
+    return None
+
+
+def _gpu_utilization_from_rocm_output(raw_output: str) -> Optional[float]:
+    try:
+        payload = json.loads(raw_output)
+    except json.JSONDecodeError:
+        payload = None
+
+    if payload is not None:
+        parsed = _extract_rocm_gpu_utilization(payload)
+        if parsed is not None:
+            return parsed
+
+    patterns = (
+        r'"GPU use(?: \(%\))?"\s*:\s*"?(?P<value>\d+(?:\.\d+)?)',
+        r'"GPU utilization(?: \(%\))?"\s*:\s*"?(?P<value>\d+(?:\.\d+)?)',
+        r'"GFX Activity"\s*:\s*"?(?P<value>\d+(?:\.\d+)?)',
+    )
+    for pattern in patterns:
+        match = re.search(pattern, raw_output, flags=re.IGNORECASE)
+        if match:
+            return float(match.group("value"))
+    return None
+
+
 def _read_rocm_smi() -> Dict[str, str]:
     try:
         result = subprocess.run(
@@ -60,9 +128,17 @@ def _read_rocm_smi() -> Dict[str, str]:
             check=False,
         )
         if result.returncode != 0 or not result.stdout.strip():
+            set_gpu_utilization(0.0, available=False)
             return {"available": "false", "details": "rocm-smi unavailable"}
-        return {"available": "true", "details": result.stdout.strip()[:1200]}
+        utilization_percent = _gpu_utilization_from_rocm_output(result.stdout)
+        set_gpu_utilization(utilization_percent or 0.0, available=utilization_percent is not None)
+        return {
+            "available": "true",
+            "details": result.stdout.strip()[:1200],
+            "utilization_percent": f"{(utilization_percent or 0.0):.1f}",
+        }
     except FileNotFoundError:
+        set_gpu_utilization(0.0, available=False)
         return {"available": "false", "details": "rocm-smi not installed"}
 
 

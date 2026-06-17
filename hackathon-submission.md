@@ -144,29 +144,32 @@ Key differentiators/ innovation:
 - Remains resilient through a fallback deterministic scheduler if the full model stack is unavailable
 
 Demo flow overview/ what the jury should notice:
-1. Start on the SOWA dashboard and highlight the hybrid telemetry + explainable placement concept
-2. Click `Run Simulation Turn`
-3. Show the selected workload, placement decision, risk level, and generated Kubernetes manifest
-4. Highlight the DevOps reasoning and performance summary as the explainability layer
-5. Trigger `Real GPU Spike` and then refresh telemetry
-6. Point out the recent accelerator event in local telemetry
-7. Run another simulation turn and show that the placement decision adapts to the changed context
-8. Optionally run the current workload locally to create additional notebook pressure and demonstrate dynamic response
-9. If Grafana is available, show the corresponding telemetry dashboards as supporting observability
+1. Start on the SOWA dashboard and introduce the hybrid telemetry plus explainable placement concept
+2. Click `Refresh Telemetry` to show the latest local CPU, memory, and GPU-aware state before making a decision
+3. Click `Run Simulation Turn` to trigger workload selection, placement reasoning, risk scoring, and Kubernetes manifest generation
+4. Show the selected workload, placement decision, telemetry source, DevOps reasoning, performance summary, and generated Kubernetes manifest
+5. Explain that the manifest is a deployment-ready placement artifact tied to AMD hardware labels, even though the demo does not mutate a live cluster
+6. Click `Trigger GPU Spike` to create a bounded local accelerator contention event
+7. Wait a few seconds, then click `Refresh Telemetry`
+8. Point out the `Recent Accelerator Event` signal in local telemetry and explain that live conditions are now different
+9. Click `Run Simulation Turn` again to show that the scheduler re-evaluates placement under changed runtime conditions
+10. Optionally click `Run Current Workload On Notebook` to create workload-shaped CPU, memory, or GPU pressure locally and then refresh telemetry again
+11. If Grafana is available, switch to the SOWA dashboard and show that the same metrics pipeline is visible through an observability lens
+12. Return to the SOWA UI and end by summarizing adaptive scheduling, explainability, and deployment-oriented output
 
-
+3-min teleprompter script:
 Hi, this is SOWA,
 our Self-Optimizing Workload Agent
 for explainable workload placement on AMD infrastructure.
 
-The goal of SOWA
-is to help platform teams
+SOWA helps platform teams
 place workloads more intelligently
 across CPU nodes,
 GPU nodes,
 and general-purpose infrastructure.
 
-Instead of relying only on static scheduling rules,
+Instead of relying only
+on static scheduling rules,
 SOWA combines live telemetry,
 workload type,
 and AI-driven reasoning
@@ -181,7 +184,7 @@ and the telemetry source.
 
 First,
 I’m refreshing telemetry
-so the system is working
+so the system starts
 from the latest local state.
 
 SOWA reads local CPU and memory usage,
@@ -192,12 +195,13 @@ It combines that
 with a simulated cluster snapshot,
 so we can demonstrate
 multi-node scheduling behavior
-in a compact environment.
+inside a compact demo environment.
 
-Now I’m running a scheduling turn.
+Now I’m running
+a scheduling turn.
 
 At this point,
-SOWA evaluates the workload,
+SOWA evaluates the incoming workload,
 checks current resource conditions,
 and selects a placement target.
 
@@ -217,14 +221,19 @@ Next,
 I’m going to simulate
 a GPU contention event.
 
-This allows us to show
-how SOWA responds
-when runtime conditions change.
+This is important
+because it lets us show
+that SOWA responds
+to changing runtime conditions
+instead of following
+fixed assumptions.
 
-After refreshing telemetry,
-we can now see
-that the system has
-new accelerator context.
+After a short wait,
+I’ll refresh telemetry.
+
+Now we can see
+the recent accelerator event
+showing up in the live telemetry.
 
 I’ll run another scheduling turn
 so we can observe
@@ -236,8 +245,18 @@ the core value of SOWA.
 
 The scheduler is adaptive,
 explainable,
-and driven by live infrastructure signals
-rather than fixed assumptions.
+and driven by live infrastructure signals.
+
+Optionally,
+I can also run
+the current workload locally.
+
+That creates workload-shaped
+CPU, memory, or GPU pressure
+on the notebook node,
+which gives us another way
+to demonstrate dynamic response
+in the telemetry pipeline.
 
 To complement the SOWA interface,
 we also provide

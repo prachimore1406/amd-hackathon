@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import traceback
 
+from sowa.workloads import begin_gpu_activity, end_gpu_activity
+
 
 def _log(message: str) -> None:
     print(f"[SOWA LLM] {message}", flush=True)
@@ -58,15 +60,21 @@ def _build_llm():
             f"(accelerator={'yes' if use_accelerator else 'no'}, device={device})"
         )
 
-        pipe = pipeline(
-            "text-generation",
-            model=model_id,
-            device=device,
-            max_new_tokens=250,
-            temperature=0.2,
-            torch_dtype=torch_dtype,
-            return_full_text=False,
-        )
+        if use_accelerator:
+            begin_gpu_activity("LLM Model Load")
+        try:
+            pipe = pipeline(
+                "text-generation",
+                model=model_id,
+                device=device,
+                max_new_tokens=250,
+                temperature=0.2,
+                torch_dtype=torch_dtype,
+                return_full_text=False,
+            )
+        finally:
+            if use_accelerator:
+                end_gpu_activity("LLM Model Load")
         _log("Model pipeline initialized successfully.")
         return HuggingFacePipeline(pipeline=pipe)
     except Exception as exc:
