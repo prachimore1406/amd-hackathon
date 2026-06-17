@@ -8,6 +8,7 @@ import socket
 import subprocess
 import sys
 import tarfile
+import threading
 import time
 import urllib.request
 from pathlib import Path
@@ -35,6 +36,8 @@ GRAFANA_VERSION = "11.1.0"
 
 # We'll find the actual directories after extraction, don't hardcode the full path yet
 LOG_DIR = BASE_DIR / "sowa_prom_logs"
+GRAFANA_PROVISIONING_DIR = BASE_DIR / "grafana-provisioning"
+GRAFANA_DASHBOARDS_DIR = BASE_DIR / "grafana-dashboards"
 
 # Process trackers
 processes = []
@@ -103,13 +106,25 @@ def cleanup(signum, frame):
                 proc.kill()
             except Exception:
                 pass
+        metadata = process_metadata.get(proc.pid, {})
+        log_handle = metadata.get("log_handle")
+        if log_handle:
+            try:
+                log_handle.close()
+            except Exception:
+                pass
     print("All services stopped!")
     sys.exit(0)
 
 
-def register_process(proc, service_name: str, log_path: Path) -> None:
+def register_process(proc, service_name: str, log_path: Path, log_handle=None, stream_thread=None) -> None:
     processes.append(proc)
-    process_metadata[proc.pid] = {"name": service_name, "log_path": log_path}
+    process_metadata[proc.pid] = {
+        "name": service_name,
+        "log_path": log_path,
+        "log_handle": log_handle,
+        "stream_thread": stream_thread,
+    }
 
 
 def print_log_tail(service_name: str, log_path: Path, tail_lines: int = 80) -> None:
@@ -130,6 +145,61 @@ def print_log_tail(service_name: str, log_path: Path, tail_lines: int = 80) -> N
         print(f"Could not read log file: {exc}")
     finally:
         print(f"----- end {service_name} log -----\n")
+
+
+def _stream_process_output(pipe, log_handle, service_name: str) -> None:
+    """Mirror a subprocess stream to both the terminal and the service log file."""
+    try:
+        for line in iter(pipe.readline, ""):
+            if not line:
+                break
+            log_handle.write(line)
+            log_handle.flush()
+            print(f"[{service_name}] {line}", end="")
+    finally:
+        try:
+            pipe.close()
+        except Exception:
+            pass
+
+
+def launch_service(
+    command,
+    cwd: Path,
+    service_name: str,
+    log_path: Path,
+    env: dict | None = None,
+    stream_to_console: bool = False,
+):
+    """Start a service, always persist logs, and optionally mirror them to stdout."""
+    if stream_to_console:
+        log_handle = open(log_path, "w", encoding="utf-8", buffering=1)
+        proc = subprocess.Popen(
+            command,
+            cwd=str(cwd),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+        stream_thread = threading.Thread(
+            target=_stream_process_output,
+            args=(proc.stdout, log_handle, service_name),
+            daemon=True,
+        )
+        stream_thread.start()
+        return proc, log_handle, stream_thread
+
+    with open(log_path, "w") as log_handle:
+        proc = subprocess.Popen(
+            command,
+            cwd=str(cwd),
+            env=env,
+            stdout=log_handle,
+            stderr=log_handle,
+        )
+    return proc, None, None
 
 
 def find_extracted_dir(base_name: str):
@@ -283,7 +353,56 @@ def build_grafana_env() -> dict:
     env["GF_AUTH_ANONYMOUS_ENABLED"] = "true"
     env["GF_AUTH_ANONYMOUS_ORG_ROLE"] = "Admin"
     env["GF_AUTH_DISABLE_LOGIN_FORM"] = "true"
+    env["GF_PATHS_PROVISIONING"] = str(GRAFANA_PROVISIONING_DIR)
     return env
+
+
+def write_grafana_provisioning() -> Path:
+    """Provision the Prometheus datasource and the bundled SOWA dashboard."""
+    dashboards_src = PROJECT_ROOT / "grafana_sowa_dashboard.json"
+    if not dashboards_src.exists():
+        raise FileNotFoundError(f"Bundled dashboard not found: {dashboards_src}")
+
+    datasources_dir = GRAFANA_PROVISIONING_DIR / "datasources"
+    dashboards_dir = GRAFANA_PROVISIONING_DIR / "dashboards"
+    datasources_dir.mkdir(parents=True, exist_ok=True)
+    dashboards_dir.mkdir(parents=True, exist_ok=True)
+    GRAFANA_DASHBOARDS_DIR.mkdir(parents=True, exist_ok=True)
+
+    provisioned_dashboard = GRAFANA_DASHBOARDS_DIR / "sowa_dashboard.json"
+    provisioned_dashboard.write_text(
+        dashboards_src.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+    datasource_yaml = (
+        "apiVersion: 1\n"
+        "datasources:\n"
+        "  - name: Prometheus\n"
+        "    type: prometheus\n"
+        "    uid: prometheus\n"
+        "    access: proxy\n"
+        "    url: http://127.0.0.1:9090\n"
+        "    isDefault: true\n"
+        "    editable: true\n"
+    )
+    (datasources_dir / "sowa-prometheus.yaml").write_text(datasource_yaml, encoding="utf-8")
+
+    dashboards_yaml = (
+        "apiVersion: 1\n"
+        "providers:\n"
+        "  - name: SOWA Dashboards\n"
+        "    orgId: 1\n"
+        "    folder: SOWA\n"
+        "    type: file\n"
+        "    disableDeletion: false\n"
+        "    allowUiUpdates: true\n"
+        "    updateIntervalSeconds: 10\n"
+        "    options:\n"
+        f"      path: {GRAFANA_DASHBOARDS_DIR}\n"
+    )
+    (dashboards_dir / "sowa-dashboards.yaml").write_text(dashboards_yaml, encoding="utf-8")
+    return provisioned_dashboard
 
 
 def clean_env_value(value: str | None) -> str | None:
@@ -365,6 +484,8 @@ def main():
 
     BASE_DIR.mkdir(parents=True, exist_ok=True)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
+    GRAFANA_PROVISIONING_DIR.mkdir(parents=True, exist_ok=True)
+    GRAFANA_DASHBOARDS_DIR.mkdir(parents=True, exist_ok=True)
     print(f"Service logs directory: {LOG_DIR}")
     public_base_url = get_public_base_url()
     sowa_public_url = build_public_service_url(public_base_url, 8000)
@@ -427,6 +548,8 @@ def main():
         grafana_dir = download_and_extract(grafana_url, "grafana-", f"grafana-{GRAFANA_VERSION}.linux-amd64.tar.gz")
     else:
         print(f"Found existing Grafana directory: {grafana_dir.name}")
+    provisioned_dashboard = write_grafana_provisioning()
+    print(f"Provisioned Grafana dashboard: {provisioned_dashboard}")
 
     # 6. Build frontend
     print("\n--- Building React Frontend ---")
@@ -447,45 +570,43 @@ def main():
     # Start Prometheus
     print("\nStarting Prometheus...")
     prom_log = LOG_DIR / "prometheus.log"
-    with open(prom_log, "w") as f:
-        proc_prom = subprocess.Popen(
-            [str(prom_dir / "prometheus"), "--config.file", str(prom_config), "--web.listen-address", ":9090"],
-            cwd=str(prom_dir),
-            stdout=f,
-            stderr=f
-        )
-    register_process(proc_prom, "Prometheus", prom_log)
+    proc_prom, prom_handle, prom_thread = launch_service(
+        [str(prom_dir / "prometheus"), "--config.file", str(prom_config), "--web.listen-address", ":9090"],
+        cwd=prom_dir,
+        service_name="Prometheus",
+        log_path=prom_log,
+    )
+    register_process(proc_prom, "Prometheus", prom_log, prom_handle, prom_thread)
     print(f"Prometheus started (PID {proc_prom.pid}) at {prometheus_public_url}")
 
     # Start Node Exporter
     print("\nStarting Node Exporter...")
     ne_log = LOG_DIR / "node_exporter.log"
-    with open(ne_log, "w") as f:
-        proc_ne = subprocess.Popen(
-            [str(ne_dir / "node_exporter"), f"--collector.textfile.directory={textfile_dir}"],
-            cwd=str(ne_dir),
-            stdout=f,
-            stderr=f
-        )
-    register_process(proc_ne, "Node Exporter", ne_log)
+    proc_ne, ne_handle, ne_thread = launch_service(
+        [str(ne_dir / "node_exporter"), f"--collector.textfile.directory={textfile_dir}"],
+        cwd=ne_dir,
+        service_name="Node Exporter",
+        log_path=ne_log,
+    )
+    register_process(proc_ne, "Node Exporter", ne_log, ne_handle, ne_thread)
     print(f"Node Exporter started (PID {proc_ne.pid}) at http://localhost:9100")
 
     # Start Grafana
     print("\nStarting Grafana...")
     grafana_log = LOG_DIR / "grafana.log"
     grafana_env = build_grafana_env()
-    with open(grafana_log, "w") as f:
-        proc_grafana = subprocess.Popen(
-            [str(grafana_dir / "bin" / "grafana-server"), "web"],
-            cwd=str(grafana_dir),
-            env=grafana_env,
-            stdout=f,
-            stderr=f
-        )
-    register_process(proc_grafana, "Grafana", grafana_log)
+    proc_grafana, grafana_handle, grafana_thread = launch_service(
+        [str(grafana_dir / "bin" / "grafana-server"), "web"],
+        cwd=grafana_dir,
+        service_name="Grafana",
+        log_path=grafana_log,
+        env=grafana_env,
+    )
+    register_process(proc_grafana, "Grafana", grafana_log, grafana_handle, grafana_thread)
     print(f"Grafana started (PID {proc_grafana.pid}) at {grafana_public_url}")
     print("  Grafana login: admin/admin")
-    print("  Import dashboard: use grafana_sowa_dashboard.json!")
+    print("  Provisioned datasource: Prometheus")
+    print("  Provisioned dashboard folder: SOWA")
 
     # Start FastAPI backend
     print("\nStarting FastAPI Backend...")
@@ -493,21 +614,19 @@ def main():
     api_env = os.environ.copy()
     api_env["SOWA_TEXTFILE_DIR"] = str(textfile_dir)
     api_env["PYTHONUNBUFFERED"] = "1"
-    with open(api_log, "w") as f:
-        proc_api = subprocess.Popen(
-            [sys.executable, "-u", str(PROJECT_ROOT / "api.py")],
-            cwd=str(PROJECT_ROOT),
-            env=api_env,
-            stdout=f,
-            stderr=f
-        )
-    register_process(proc_api, "FastAPI Backend", api_log)
+    proc_api, api_handle, api_thread = launch_service(
+        [sys.executable, "-u", str(PROJECT_ROOT / "api.py")],
+        cwd=PROJECT_ROOT,
+        service_name="FastAPI Backend",
+        log_path=api_log,
+        env=api_env,
+        stream_to_console=True,
+    )
+    register_process(proc_api, "FastAPI Backend", api_log, api_handle, api_thread)
     print(f"Backend started (PID {proc_api.pid}) at {sowa_public_url}")
     print(f"  Backend log: {api_log}")
-    print("  Note: the LLM loads lazily on the first simulation turn; model logs will appear in backend.log.")
-    time.sleep(1)
-    if api_log.exists() and api_log.stat().st_size > 0:
-        print_log_tail("FastAPI Backend startup", api_log, tail_lines=20)
+    print("  Backend logs are now mirrored live to this terminal and also written to backend.log.")
+    print("  Note: the LLM loads lazily on the first simulation turn; model logs will appear after the first request.")
 
     print("\n" + "="*70)
     print("🎉 ALL SERVICES STARTED SUCCESSFULLY! 🎉")
